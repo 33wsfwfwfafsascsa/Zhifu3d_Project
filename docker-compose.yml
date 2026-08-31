@@ -1,0 +1,73 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: zhifu3d-mongo
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  mysql:
+    image: mysql:8.0
+    container_name: zhifu3d-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: 12345678
+      MYSQL_DATABASE: zhifu3d
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  minio:
+    image: minio/minio
+    container_name: zhifu3d-minio
+    restart: unless-stopped
+    ports:
+      - "9001:9000"
+      - "9002:9001"
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: 12345678
+    volumes:
+      - minio-data:/data
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.18
+    container_name: zhifu3d-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd-data:/etcd
+
+  milvus:
+    image: milvusdb/milvus:v2.4.17
+    container_name: zhifu3d-milvus
+    restart: unless-stopped
+    ports:
+      - "19531:19530"
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: admin          
+      MINIO_SECRET_ACCESS_KEY: 12345678   
+    command: ["milvus", "run", "standalone"]
+    volumes:
+      - milvus-data:/var/lib/milvus
+    depends_on:
+      - etcd
+      - minio
+
+volumes:
+  mongo-data:
+  mysql-data:
+  minio-data:
+  etcd-data:
+  milvus-data:
