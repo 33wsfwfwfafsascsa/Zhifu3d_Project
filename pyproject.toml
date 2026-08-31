@@ -1,0 +1,21 @@
+[project]
+name = "zhifu3d"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "agents>=1.4.0",
+    "dashscope>=1.27.2",
+    "langchain-openai>=1.6.0",
+    "langgraph>=1.2.11",
+    "minio>=7.2.20",
+    "pymilvus>=3.0.1",
+    "pymongo>=4.17.0",
+    "torch>=2.13.0",
+    "transformers>=5.16.1",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+default = true

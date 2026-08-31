@@ -1,23 +1,4 @@
-# 环境变量与密钥（.env.example 保留入仓库）
 .env
-.env.*
-!.env.example
-
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-*.egg-info/
-
-# 本地模型与大体积二进制（BGE-M3 等）
-model/
-*.bin
-*.pt
-*.onnx
-
-# 日志与系统文件
-logs/
-*.log
-.DS_Store
-Thumbs.db
+data
+.venv
+企业级智能客服系统-PRD及技术方案.md
