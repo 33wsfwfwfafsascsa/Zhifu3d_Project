@@ -12,9 +12,8 @@ load_dotenv()
 MYSQL_CONFIG: dict = {
     "host": os.getenv("MYSQL_HOST", "127.0.0.1"),
     "port": int(os.getenv("MYSQL_PORT", "3307")),
-    "user": os.getenv("MYSQL_USER", "root"),
-    # 默认值与仓库 docker-compose.yml 演示配置一致
-    "password": os.getenv("MYSQL_PASSWORD", "12345678"),
+    "user": os.getenv("MYSQL_USER"),
+    "password": os.getenv("MYSQL_PASSWORD"),
     "database": os.getenv("MYSQL_DB", "zhifu3d"),
     "charset": "utf8mb4",
     "cursorclass": DictCursor,

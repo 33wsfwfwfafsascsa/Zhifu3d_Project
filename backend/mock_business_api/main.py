@@ -3,8 +3,9 @@
 接口契约与真实业务系统一致，切换真实系统仅需替换 BASE_URL 与鉴权头。
 """
 
+import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import List, Literal, Optional
 
 import uvicorn
@@ -72,6 +73,27 @@ def _db_commit(sql: str, params: tuple = ()) -> None:
         raise HTTPException(status_code=500, detail=f"数据库操作失败: {exc}") from exc
 
 
+def _parse_excluded(raw: Optional[str]) -> List[str]:
+    """把 excluded 的 JSON 数组字符串解析为列表，解析失败时返回空列表。"""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        return [str(x) for x in parsed] if isinstance(parsed, list) else []
+    except json.JSONDecodeError:
+        return [x.strip() for x in raw.split("、") if x.strip()]
+
+
+def _add_months(dt: datetime, months: int) -> datetime:
+    """日期加 N 个月（处理月末边界，如 8-31 + 1 月 → 9-30）。"""
+    month_index = dt.month - 1 + months
+    year = dt.year + month_index // 12
+    month = month_index % 12 + 1
+    days_in_month = (date(year, month + 1, 1) - timedelta(days=1)).day
+    day = min(dt.day, days_in_month)
+    return datetime(year, month, day, dt.hour, dt.minute, dt.second)
+
+
 @app.get("/health")
 def health() -> dict:
     """健康检查。"""
@@ -115,7 +137,72 @@ def get_refund_policy(product_type: str) -> dict:
     )
     if not rows:
         raise HTTPException(status_code=404, detail="未找到该产品类型的政策")
-    return rows[0]
+    policy = rows[0]
+    policy["excluded"] = _parse_excluded(policy.get("excluded"))
+    return policy
+
+
+@app.get("/api/warranty/{order_id}")
+def get_warranty(order_id: str, part: Optional[str] = None) -> dict:
+    """保修判定：签收日优先，无签收节点退回下单日；支持部件级排除判定。"""
+    order = _db_execute(
+        "SELECT order_id, product_model, created_at FROM orders WHERE order_id = %s",
+        (order_id,),
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+
+    product = _db_execute(
+        "SELECT model, warranty_months FROM products WHERE model = %s",
+        (order[0]["product_model"],),
+    )
+    policy = _db_execute(
+        "SELECT policy_id, excluded FROM refund_policies WHERE product_type = %s",
+        ("3D打印机整机",),
+    )
+
+    warranty_months = int(product[0]["warranty_months"]) if product else 12
+    policy_id = policy[0]["policy_id"] if policy else None
+    excluded = _parse_excluded(policy[0].get("excluded")) if policy else []
+
+    # 签收日优先：取物流中最近一条“已签收”节点时间；没有则退回下单日
+    signed_events = _db_execute(
+        "SELECT event_time FROM logistics_events "
+        "WHERE order_id = %s AND description LIKE %s ORDER BY event_time DESC LIMIT 1",
+        (order_id, "%已签收%"),
+    )
+    if signed_events:
+        warranty_start = signed_events[0]["event_time"]
+    else:
+        warranty_start = order[0]["created_at"]
+
+    if isinstance(warranty_start, datetime):
+        warranty_start_dt = warranty_start
+    elif isinstance(warranty_start, date):
+        warranty_start_dt = datetime.combine(warranty_start, datetime.min.time())
+    else:
+        warranty_start_dt = datetime.strptime(str(warranty_start)[:19], "%Y-%m-%d %H:%M:%S")
+
+    warranty_end_dt = _add_months(warranty_start_dt, warranty_months)
+    today = date.today()
+    in_warranty = today <= warranty_end_dt.date()
+    remaining_days = max((warranty_end_dt.date() - today).days, 0)
+
+    result = {
+        "order_id": order_id,
+        "product_model": order[0]["product_model"],
+        "warranty_start": warranty_start_dt.date().isoformat(),
+        "warranty_end": warranty_end_dt.date().isoformat(),
+        "warranty_months": warranty_months,
+        "in_warranty": in_warranty,
+        "remaining_days": remaining_days,
+        "policy_id": policy_id,
+        "excluded": excluded,
+    }
+    if part:
+        result["part"] = part
+        result["part_in_warranty"] = part not in excluded
+    return result
 
 
 @app.post("/api/tickets", status_code=201)

@@ -1,4 +1,4 @@
--- 智服3D Mock 业务库表结构（与 PRD 8.5 数据模型一致）
+-- 智服3D Mock 业务库表结构
 
 CREATE TABLE IF NOT EXISTS products (
   product_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS refund_policies (
   warranty_months INT NOT NULL,
   return_days INT NOT NULL,
   exchange_days INT NOT NULL,
-  excluded VARCHAR(500),
+  excluded VARCHAR(500) COMMENT 'JSON 数组字符串，如 ["易损件","赠品","消耗品"]',
   terms_text TEXT,
   source_url VARCHAR(500)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

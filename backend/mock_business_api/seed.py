@@ -38,16 +38,14 @@ def insert_products(conn) -> int:
         ("Creality", "K1 Max", "K1 Max 3D打印机", "3d_printer", 12),
         ("Creality", "K1C", "K1C 3D打印机", "3d_printer", 12),
         ("Creality", "K2", "K2 3D打印机", "3d_printer", 12),
-        ("Bambu Lab", "A1", "Bambu Lab A1 3D打印机", "3d_printer", 12),
-        ("Bambu Lab", "P1S", "Bambu Lab P1S 3D打印机", "3d_printer", 12),
-        ("Prusa", "MK4", "Prusa MK4 3D打印机", "3d_printer", 24),
-        ("Anycubic", "Kobra 2 Pro", "Anycubic Kobra 2 Pro 3D打印机", "3d_printer", 12),
-        ("Elegoo", "Neptune 4", "Elegoo Neptune 4 3D打印机", "3d_printer", 12),
-        ("Flashforge", "Adventurer 5M", "Flashforge Adventurer 5M 3D打印机", "3d_printer", 12),
         ("Creality", "Ender-3 S1 Pro", "Ender-3 S1 Pro 3D打印机", "3d_printer", 12),
         ("Creality", "CR-10 SE", "CR-10 SE 3D打印机", "3d_printer", 12),
         ("Creality", "Halot Mage", "Halot Mage 光固化3D打印机", "resin_printer", 12),
         ("Creality", "K1 SE", "K1 SE 3D打印机", "3d_printer", 12),
+        ("Creality", "K2-Plus", "K2-Plus 3D打印机", "3d_printer", 12),
+        ("Creality", "K2-Pro", "K2-Pro 3D打印机", "3d_printer", 12),
+        ("Creality", "CFS", "CFS 多色耗材管理系统", "accessory", 12),
+        ("Prusa", "MK4", "Prusa MK4 3D打印机", "3d_printer", 24),
     ]
     with conn.cursor() as cur:
         cur.executemany(
@@ -64,16 +62,16 @@ def insert_orders(conn) -> int:
         ("ORD-20260815-001", "王小明", "Ender-3 V3 KE", "Ender-3 V3 KE 3D打印机", 1799.00, "shipped", "2026-08-15 10:30:00"),
         ("ORD-20260801-002", "李雷", "K1C", "K1C 3D打印机", 2399.00, "completed", "2026-08-01 09:00:00"),
         ("ORD-20260820-003", "韩梅梅", "K2", "K2 3D打印机", 3999.00, "pending", "2026-08-20 16:20:00"),
-        ("ORD-20260701-004", "陈晨", "Bambu Lab A1", "Bambu Lab A1 3D打印机", 2699.00, "paid", "2026-07-01 11:00:00"),
-        ("ORD-20260705-005", "赵磊", "Prusa MK4", "Prusa MK4 3D打印机", 4999.00, "shipped", "2026-07-05 14:30:00"),
-        ("ORD-20260710-006", "孙丽", "Anycubic Kobra 2 Pro", "Anycubic Kobra 2 Pro 3D打印机", 1899.00, "completed", "2026-07-10 09:15:00"),
-        ("ORD-20260718-007", "周强", "Elegoo Neptune 4", "Elegoo Neptune 4 3D打印机", 1599.00, "refunded", "2026-07-18 16:40:00"),
-        ("ORD-20260725-008", "吴敏", "Flashforge Adventurer 5M", "Flashforge Adventurer 5M 3D打印机", 2199.00, "paid", "2026-07-25 10:05:00"),
+        ("ORD-20260701-004", "陈晨", "K2-Plus", "K2-Plus 3D打印机", 2699.00, "paid", "2026-07-01 11:00:00"),
+        ("ORD-20260705-005", "赵磊", "MK4", "MK4 3D打印机", 4999.00, "shipped", "2026-07-05 14:30:00"),
+        ("ORD-20260710-006", "孙丽", "K2-Pro", "K2-Pro 3D打印机", 1899.00, "completed", "2026-07-10 09:15:00"),
+        ("ORD-20260718-007", "周强", "CFS", "CFS 耗材盒", 1599.00, "refunded", "2026-07-18 16:40:00"),
+        ("ORD-20260725-008", "吴敏", "Ender-5 Max", "Ender-5 Max 3D打印机", 2199.00, "paid", "2026-07-25 10:05:00"),
         ("ORD-20260802-009", "郑浩", "Ender-3 S1 Pro", "Ender-3 S1 Pro 3D打印机", 2099.00, "shipped", "2026-08-02 13:20:00"),
         ("ORD-20260808-010", "冯雪", "CR-10 SE", "CR-10 SE 3D打印机", 2499.00, "completed", "2026-08-08 17:00:00"),
         ("ORD-20260812-011", "褚军", "Halot Mage", "Halot Mage 光固化3D打印机", 1499.00, "refunded", "2026-08-12 08:45:00"),
         ("ORD-20260816-012", "卫东", "K1 SE", "K1 SE 3D打印机", 3299.00, "shipped", "2026-08-16 15:10:00"),
-        ("ORD-20260822-013", "蒋雯", "Bambu Lab P1S", "Bambu Lab P1S 3D打印机", 4599.00, "completed", "2026-08-22 19:30:00"),
+        ("ORD-20260822-013", "蒋雯", "Ender-3 V3 Plus", "Ender-3 V3 Plus 3D打印机", 4599.00, "completed", "2026-08-22 19:30:00"),
     ]
     with conn.cursor() as cur:
         cur.executemany(
@@ -140,7 +138,7 @@ def insert_policies(conn) -> int:
             12,
             7,
             15,
-            "易损件、赠品、消耗品",
+            '["喷嘴", "热床", "风扇", "皮带", "PEI打印板"]',
             "中国大陆（含港澳台）整机质保 12 个月；电商平台购买支持 7 天无理由退货；"
             "因品质问题非人为损坏，签收后 15 天内可申请退换货；易损件、赠品、消耗品除外。",
             "http://www.creality.cn/index.php/policy.html",
@@ -169,7 +167,7 @@ def insert_tickets(conn) -> int:
             "2026-08-18 15:00:00",
             None,
         ),
-        ("TKT-20260818-002", "SESSION-DEMO-002", "咨询", "K1C 切片软件怎么安装", "Creality Print 一直报安装失败", "K1C", "open", "2026-08-18 16:00:00", None),
+        ("TKT-20260818-002", "SESSION-DEMO-002", "咨询", "K1C 切片软件怎么安装", "CZWW Print 一直报安装失败", "K1C", "open", "2026-08-18 16:00:00", None),
         ("TKT-20260819-001", "SESSION-DEMO-003", "故障排查", "K2 打印中断", "打印到一半自动停止，喷嘴温度正常", "K2", "processing", "2026-08-19 10:30:00", "AGENT-001"),
         ("TKT-20260819-002", "SESSION-DEMO-004", "售后", "Ender-3 V3 KE 热床问题退货咨询", "热床不加热，想确认能否退货", "Ender-3 V3 KE", "closed", "2026-08-19 14:00:00", "AGENT-002"),
         ("TKT-20260820-001", "SESSION-DEMO-005", "投诉", "物流太慢要求处理", "下单一周还没收到，强烈不满", "K1 Max", "open", "2026-08-20 09:00:00", None),
@@ -182,7 +180,7 @@ def insert_tickets(conn) -> int:
     ]
     with conn.cursor() as cur:
         cur.executemany(
-            "INSERT INTO tickets (ticket_id, session_id, category, summary, customer_desc, model, status, created_at, updated_at) "
+            "INSERT INTO tickets (ticket_id, session_id, category, summary, customer_desc, model, status, created_at, agent_id) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             tickets,
         )
