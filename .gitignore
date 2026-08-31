@@ -3,3 +3,8 @@ data
 .venv
 企业级智能客服系统-PRD及技术方案.md
 docker-compose.yml
+
+# Python 缓存与生成物
+__pycache__/
+*.py[cod]
+*.egg-info/
