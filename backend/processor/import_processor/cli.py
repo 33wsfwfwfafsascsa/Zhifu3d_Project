@@ -1,41 +1,14 @@
 """知识库导入 CLI：python -m backend.processor.import_processor.cli --file <path> [--type ...] [--model ...]"""
 
 import argparse
-import logging
 import uuid
 from pathlib import Path
 
 from backend.processor.import_processor.base import setup_logging
+from backend.processor.import_processor.catalog import infer_knowledge_type, load_model_catalog
 from backend.processor.import_processor.config import KNOWLEDGE_TYPES
 from backend.processor.import_processor.main_graph import KBImportWorkflow
 from backend.processor.import_processor.state import create_default_state
-
-
-def infer_knowledge_type(path: Path) -> str:
-    mapping = {
-        "manuals": "manual",
-        "faq": "faq",
-        "policy": "policy",
-        "troubleshooting": "troubleshooting",
-    }
-    return mapping.get(path.parent.name.lower(), "")
-
-
-def load_model_catalog() -> list[str]:
-    try:
-        from backend.mock_business_api.config import get_connection
-
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT DISTINCT model FROM products ORDER BY model")
-                rows = cur.fetchall()
-        finally:
-            conn.close()
-        return [row["model"] for row in rows]
-    except Exception as exc:
-        logging.getLogger(__name__).warning("读取机型目录失败（%s），标注将不做归一化", exc)
-        return []
 
 
 def main() -> None:
