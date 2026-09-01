@@ -15,6 +15,16 @@ class NodeImportMilvus(BaseNode):
 
     name: str = "node_import_milvus"
 
+    @staticmethod
+    def _truncate_utf8(value: str, max_bytes: int) -> str:
+        """按 UTF-8 字节数截断（Milvus VARCHAR 长度按字节计，中文需按字节截）。"""
+        if not value:
+            return ""
+        encoded = value.encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return value
+        return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
     def process(self, state: ImportGraphState) -> ImportGraphState:
         chunks, vector_dimension = self._step_1_check_input(state)
         client = self._step_2_prepare_collection(vector_dimension)
@@ -74,10 +84,13 @@ class NodeImportMilvus(BaseNode):
             item_copy = item.copy()
             if "part" not in item_copy:
                 item_copy["part"] = 0
-            # 对齐 schema 的 VARCHAR 长度限制，避免长标题/文件名导致插入失败
-            item_copy["title"] = (item_copy.get("title") or "")[:100]
-            item_copy["parent_title"] = (item_copy.get("parent_title") or "")[:100]
-            item_copy["file_title"] = (item_copy.get("file_title") or "")[:100]
+            # 对齐 schema 的 VARCHAR 长度限制（按 UTF-8 字节计）
+            item_copy["title"] = self._truncate_utf8(item_copy.get("title") or "", 100)
+            item_copy["parent_title"] = self._truncate_utf8(item_copy.get("parent_title") or "", 100)
+            item_copy["file_title"] = self._truncate_utf8(item_copy.get("file_title") or "", 100)
+            item_copy["product_model"] = self._truncate_utf8(item_copy.get("product_model") or "", 100)
+            item_copy["knowledge_type"] = self._truncate_utf8(item_copy.get("knowledge_type") or "", 50)
+            item_copy["content"] = self._truncate_utf8(item_copy.get("content") or "", 65535)
             data_to_insert.append(item_copy)
 
         insert_result = client.insert(collection_name=milvus_config.chunks_collection, data=data_to_insert)
