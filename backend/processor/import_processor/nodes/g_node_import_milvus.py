@@ -74,6 +74,10 @@ class NodeImportMilvus(BaseNode):
             item_copy = item.copy()
             if "part" not in item_copy:
                 item_copy["part"] = 0
+            # 对齐 schema 的 VARCHAR 长度限制，避免长标题/文件名导致插入失败
+            item_copy["title"] = (item_copy.get("title") or "")[:100]
+            item_copy["parent_title"] = (item_copy.get("parent_title") or "")[:100]
+            item_copy["file_title"] = (item_copy.get("file_title") or "")[:100]
             data_to_insert.append(item_copy)
 
         insert_result = client.insert(collection_name=milvus_config.chunks_collection, data=data_to_insert)
