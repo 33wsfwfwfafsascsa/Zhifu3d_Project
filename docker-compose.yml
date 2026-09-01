@@ -48,7 +48,7 @@ services:
       - etcd-data:/etcd
 
   milvus:
-    image: milvusdb/milvus:v2.4.17
+    image: milvusdb/milvus:v2.4.15
     container_name: zhifu3d-milvus
     restart: unless-stopped
     ports:
