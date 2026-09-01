@@ -65,6 +65,15 @@ services:
       - etcd
       - minio
 
+  attu:
+    image: zilliz/attu:latest
+    container_name: zhifu3d-attu
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - milvus
+
 volumes:
   mongo-data:
   mysql-data:
