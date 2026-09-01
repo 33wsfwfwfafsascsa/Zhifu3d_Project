@@ -92,9 +92,13 @@ async def upload_file(
     task_id = str(uuid.uuid4())
     config = get_config()
     data_root = config.data_root_dir or "data/raw"
-    file_dir = Path(data_root) / datetime.now().strftime("%Y%m%d") / task_id
-    file_dir.mkdir(parents=True, exist_ok=True)
-    import_file_path = file_dir / safe_name
+    md_root = config.md_root_dir or "data/processed"
+
+    # 原始文件留在 raw/<日期>/<task_id>；流水线产物统一落 processed/<文件标题>
+    upload_dir = Path(data_root) / datetime.now().strftime("%Y%m%d") / task_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    import_file_path = upload_dir / safe_name
+    work_dir = Path(md_root) / Path(safe_name).stem
 
     add_running_task(task_id, "upload_file")
     try:
@@ -104,6 +108,13 @@ async def upload_file(
         update_task_status(task_id, "failed")
         set_task_result(task_id, "error", str(exc))
         raise HTTPException(status_code=500, detail=f"文件保存失败: {exc}") from exc
+
+    # PDF：解析节点会把产物写进 work_dir；MD：先复制到 work_dir 再跑，保证产物不落 raw
+    pipeline_path = import_file_path
+    if suffix == ".md":
+        work_dir.mkdir(parents=True, exist_ok=True)
+        pipeline_path = work_dir / safe_name
+        shutil.copy2(import_file_path, pipeline_path)
 
     # 原始文件备份到 MinIO（失败不阻断本地导入）
     try:
@@ -121,7 +132,7 @@ async def upload_file(
 
     add_done_task(task_id, "upload_file")
     background_tasks.add_task(
-        run_graph_task, task_id, str(file_dir), str(import_file_path), knowledge_type, product_model
+        run_graph_task, task_id, str(work_dir), str(pipeline_path), knowledge_type, product_model
     )
     return {"code": 200, "task_id": task_id, "knowledge_type": knowledge_type, "product_model": product_model}
 
