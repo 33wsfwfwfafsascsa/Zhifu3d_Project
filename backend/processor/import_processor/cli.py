@@ -70,14 +70,14 @@ def main() -> None:
     print(f"开始导入：{path.name}（type={knowledge_type}, model={args.model or 'chunk 级标注'}）")
 
     workflow = KBImportWorkflow()
-    final_state = None
-    for event in workflow.run(state, stream=True):
+    final_state = {}
+    for event in workflow.graph.stream(state, stream_mode="updates"):
         for node_name, node_result in event.items():
             if isinstance(node_result, dict) and node_result.get("chunks") is not None:
                 final_state = node_result
             print(f"[{node_name}] 完成")
 
-    chunk_count = len(final_state.get("chunks", [])) if final_state else 0
+    chunk_count = len(final_state.get("chunks", []))
     print(f"导入完成：共 {chunk_count} 个 chunk 已入库")
 
 
