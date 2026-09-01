@@ -2,7 +2,10 @@
 
 import logging
 import shutil
+import subprocess
+import tempfile
 import time
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -107,13 +110,11 @@ class NodePDFToMD(BaseNode):
             time.sleep(poll_interval)
 
     def _step_3_download_and_extract(self, zip_url: str, output_dir_obj: Path, pdf_stem: str) -> str:
-        response = requests.get(zip_url)
-        if response.status_code != 200:
-            raise RuntimeError(f"ZIP 下载失败：HTTP {response.status_code}")
+        zip_bytes = self._download_zip_with_retry(zip_url)
 
         zip_save_path = output_dir_obj / f"{pdf_stem}_result.zip"
         with open(zip_save_path, "wb") as f:
-            f.write(response.content)
+            f.write(zip_bytes)
 
         extract_target_dir = output_dir_obj / pdf_stem
         if extract_target_dir.exists():
@@ -127,3 +128,38 @@ class NodePDFToMD(BaseNode):
         new_md_path = target_md_file.with_name(f"{pdf_stem}.md")
         target_md_file.rename(new_md_path)
         return str(new_md_path.absolute())
+
+    def _download_zip_with_retry(self, zip_url: str, max_retries: int = 3) -> bytes:
+        """下载 MinerU 结果 ZIP：requests 指数退避重试，失败则 curl（Schannel）兜底。
+
+        MinerU 的 CDN 端点与 Python/OpenSSL 的 TLS 握手在部分网络下会 EOF，
+        而 Windows 自带 curl（Schannel TLS 栈）可正常下载，因此做双通道兜底。
+        """
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.get(zip_url, timeout=120)
+                if response.status_code == 200:
+                    return response.content
+                last_error = RuntimeError(f"HTTP {response.status_code}")
+            except Exception as exc:
+                last_error = exc
+                self.logger.warning("ZIP 下载失败（第 %s 次）：%s，稍后重试", attempt, exc)
+                time.sleep(3 * attempt)
+
+        curl = shutil.which("curl.exe") or shutil.which("curl")
+        if curl:
+            self.logger.warning("requests 下载失败（%s），改用 curl 兜底", last_error)
+            tmp_path = Path(tempfile.gettempdir()) / f"mineru_{uuid.uuid4().hex}.zip"
+            cmd = [curl, "-4", "-L", "--retry", "5", "--retry-all-errors", "-sS", "-o", str(tmp_path), zip_url]
+            try:
+                result = subprocess.run(cmd, capture_output=True, timeout=600)
+                if result.returncode == 0 and tmp_path.exists():
+                    data = tmp_path.read_bytes()
+                    tmp_path.unlink(missing_ok=True)
+                    return data
+                raise RuntimeError(result.stderr.decode(errors="ignore")[:200])
+            finally:
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"ZIP 下载失败：{last_error}")
