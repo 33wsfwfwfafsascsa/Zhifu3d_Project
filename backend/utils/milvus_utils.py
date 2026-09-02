@@ -1,5 +1,6 @@
 """Milvus 客户端工具：连接、集合建表、混合检索。"""
 
+import json
 import logging
 
 from pymilvus import AnnSearchRequest, DataType, MilvusClient, WeightedRanker
@@ -31,6 +32,21 @@ def escape_milvus_string(value: str) -> str:
     """转义过滤表达式中的字符串特殊字符。"""
     value = value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
     return value
+
+
+def build_chunk_filter_expr(
+    models: list[str] | None = None,
+    knowledge_types: list[str] | None = None,
+) -> str | None:
+    """构造 kb_chunks 过滤表达式（product_model / knowledge_type in [...]）。"""
+    parts: list[str] = []
+    if models:
+        quoted = ", ".join(json.dumps(m, ensure_ascii=False) for m in models)
+        parts.append(f"product_model in [{quoted}]")
+    if knowledge_types:
+        quoted = ", ".join(json.dumps(t, ensure_ascii=False) for t in knowledge_types)
+        parts.append(f"knowledge_type in [{quoted}]")
+    return " and ".join(parts) if parts else None
 
 
 def create_kb_chunks_collection(client: MilvusClient, collection_name: str, vector_dim: int) -> None:
