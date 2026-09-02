@@ -52,7 +52,13 @@ class NodeDocumentSplit(BaseNode):
             if not current_lines:
                 return
             sections.append(
-                {"title": current_title, "content": "\n".join(current_lines), "file_title": file_title}
+                {
+                    "title": current_title,
+                    "content": "\n".join(current_lines),
+                    "file_title": file_title,
+                    # 切分时即记录所属章节，供后续仅对同章节碎片做短章合并
+                    "parent_title": current_title or "",
+                }
             )
 
         for line in lines:
@@ -156,6 +162,15 @@ class NodeDocumentSplit(BaseNode):
                 current_chunk = sec
                 continue
 
+            # 章标题后无正文（如 FAQ 的一、二、三章标题）→ 并入下一节，避免孤立空 chunk
+            if self._is_heading_only(current_chunk):
+                current_chunk["content"] = current_chunk["content"].rstrip() + "\n" + sec["content"]
+                current_chunk["title"] = sec.get("title") or current_chunk.get("title")
+                current_chunk["parent_title"] = sec.get("parent_title", "")
+                if "part" in sec:
+                    current_chunk["part"] = sec["part"]
+                continue
+
             is_current_short = len(current_chunk["content"]) < self.config.min_content_length
             is_same_parent = current_chunk.get("parent_title") == sec.get("parent_title")
             if is_current_short and is_same_parent:
@@ -173,6 +188,22 @@ class NodeDocumentSplit(BaseNode):
         if current_chunk is not None:
             merged_sections.append(current_chunk)
         return merged_sections
+
+    @staticmethod
+    def _is_heading_only(section: Dict[str, str]) -> bool:
+        """判断章节是否只有标题行、无正文。"""
+        content = (section.get("content") or "").strip()
+        title = (section.get("title") or "").strip()
+        if not content or not title:
+            return False
+        body = content
+        if body.startswith(title):
+            body = body[len(title) :].strip()
+        if not body:
+            return True
+        # 合并了多级纯标题（如 # 文档标题 + ## 章标题）后，正文仍可能只由标题行构成
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+        return bool(lines) and all(re.match(r"^#{1,6}\s+", line) for line in lines)
 
     def _step_5_print_stats(self, lines_count: int, sections: List[Dict[str, str]]) -> None:
         self.logger.info("=" * 30 + " 文档切分统计 " + "=" * 30)
