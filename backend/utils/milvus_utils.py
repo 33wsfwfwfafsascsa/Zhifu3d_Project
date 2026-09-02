@@ -142,14 +142,13 @@ def hybrid_search(
     collection_name: str,
     reqs,
     ranker_weights=(0.5, 0.5),
-    norm_score=False,
     limit=5,
     output_fields=None,
     search_params=None,
 ):
     """执行稠密 + 稀疏混合检索；失败返回 None。"""
     try:
-        rerank = WeightedRanker(ranker_weights[0], ranker_weights[1], norm_score=norm_score)
+        rerank = WeightedRanker(*ranker_weights)
         if output_fields is None:
             output_fields = ["product_model"]
         res = client.hybrid_search(

@@ -15,11 +15,7 @@ from backend.processor.query_processor.prompt.model_confirm import (
 from backend.processor.query_processor.state import QueryGraphState
 from backend.utils.embedding_utils import generate_embeddings
 from backend.utils.llm_utils import get_llm_client
-from backend.utils.milvus_utils import (
-    create_hybrid_search_requests,
-    get_milvus_client,
-    hybrid_search,
-)
+from backend.utils.milvus_utils import get_milvus_client
 from backend.utils.mongo_history_utils import (
     get_recent_messages,
     save_chat_message,
@@ -105,20 +101,14 @@ class NodeModelConfirm(NodeBase[QueryGraphState]):
         }
 
     def _search_entities(self, client, name: str) -> list[dict]:
-        """对单个机型名执行 kb_entities 混合检索。"""
+        """对单个机型名执行 kb_entities 稠密 COSINE 检索（BGE 归一化，分数 0-1）。"""
         try:
             embeddings = generate_embeddings([name])
-            reqs = create_hybrid_search_requests(
-                dense_vector=embeddings["dense"][0],
-                sparse_vector=embeddings["sparse"][0],
-                limit=5,
-            )
-            res = hybrid_search(
-                client=client,
+            res = client.search(
                 collection_name=milvus_config.entity_collection,
-                reqs=reqs,
-                ranker_weights=(0.8, 0.2),
-                norm_score=True,
+                data=[embeddings["dense"][0]],
+                anns_field="dense_vector",
+                search_params={"metric_type": "COSINE"},
                 limit=5,
                 output_fields=["model"],
             )

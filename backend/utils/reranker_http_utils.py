@@ -11,13 +11,17 @@ def rerank_documents(query: str, documents: list[str]) -> list[float]:
         raise RuntimeError("TEXT_RERANK_MODEL 未配置，无法调用 Rerank")
 
     dashscope.api_key = reranker_config.api_key
+    call_kwargs: dict = {
+        "model": reranker_config.model,
+        "query": query,
+        "documents": documents,
+        "top_n": len(documents),
+        "return_documents": False,
+    }
+    if reranker_config.instruct and reranker_config.instruct.lower() != "false":
+        call_kwargs["instruct"] = reranker_config.instruct
     response = dashscope.TextReRank.call(
-        model=reranker_config.model,
-        query=query,
-        documents=documents,
-        top_n=len(documents),
-        return_documents=False,
-        instruct=reranker_config.instruct,
+        **call_kwargs,
     )
 
     status_code = response.get("status_code")

@@ -6,7 +6,12 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.config.lm_config import lm_config
-from backend.service.constants import INTENT_LABELS, ORDER_ID_PATTERN, rule_based_classify
+from backend.service.constants import (
+    CHITCHAT_KEYWORDS,
+    INTENT_LABELS,
+    ORDER_ID_PATTERN,
+    rule_based_classify,
+)
 from backend.service.prompt.intent import INTENT_SYSTEM_PROMPT, INTENT_USER_TEMPLATE
 from backend.service.state import ServiceGraphState
 from backend.utils.llm_utils import get_llm_client
@@ -48,6 +53,10 @@ class IntentClassifier:
                 raise ValueError(f"非法意图标签: {intent}")
             confidence = min(max(float(result.get("confidence", 0.0)), 0.0), 1.0)
             order_ids = [str(item).strip() for item in result.get("order_ids", []) if str(item).strip()]
+            # 闲聊校验：仅当消息是短问候/感谢等纯寒暄时接受 chitchat，避免业务问题被误判
+            if intent == "chitchat" and not self._looks_like_chitchat(query):
+                logger.info("LLM 误判闲聊，回退 consult: %s", query)
+                intent, confidence = "consult", 0.5
         except Exception as exc:
             logger.warning("LLM 意图分类失败，启用规则兜底: %s", exc)
             intent, confidence, order_ids = rule_based_classify(query)
@@ -55,3 +64,8 @@ class IntentClassifier:
         # 规则补充：订单号正则兜底，与 LLM 结果取并集
         order_ids = list(dict.fromkeys(order_ids + ORDER_ID_PATTERN.findall(query)))
         return intent, confidence, order_ids
+
+    def _looks_like_chitchat(self, query: str) -> bool:
+        """纯寒暄判定：短消息且命中问候/感谢类关键词。"""
+        stripped = query.strip()
+        return len(stripped) <= 12 and any(keyword in stripped for keyword in CHITCHAT_KEYWORDS)
