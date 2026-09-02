@@ -64,7 +64,7 @@ class RagAgent:
         return state
 
     def _retrieve(self, base_state: dict) -> list[dict]:
-        """向量 / HyDE 两路召回 → RRF → Rerank 断崖截断。"""
+        """向量 / HyDE 两路召回 → RRF → Rerank 断崖截断（Q6：机型严格过滤）。"""
         try:
             embedding_result = self.node_search(dict(base_state))
             hyde_result = self.node_hyde(dict(base_state))
