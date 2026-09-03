@@ -6,10 +6,12 @@
 import logging
 import threading
 import uuid
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi import Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
@@ -177,6 +179,11 @@ def _envelope(result: ServiceGraphState) -> dict:
         "escalate": result.get("escalate", False),
         "escalate_reason": result.get("escalate_reason", ""),
     }
+
+
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
 
 
 if __name__ == "__main__":

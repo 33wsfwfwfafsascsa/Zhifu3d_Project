@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智服3D · 演示控制台</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="pane user-pane">
+      <header class="pane-header">
+        <h1>智服3D 售后助手</h1>
+        <div class="sid">会话 <span id="sessionId"></span></div>
+      </header>
+      <div id="chatMessages" class="messages"></div>
+      <footer class="composer">
+        <input id="chatInput" placeholder="例如：Ender-3 V3 KE 打印第一层翘边怎么办">
+        <button id="chatSend">发送</button>
+      </footer>
+    </aside>
+
+    <main class="pane agent-pane">
+      <header class="pane-header">
+        <h1>坐席工作台</h1>
+        <div class="agent-toolbar">
+          <label>坐席姓名</label>
+          <input id="operatorName" value="坐席A">
+        </div>
+      </header>
+      <div class="agent-body">
+        <section class="queue">
+          <h2>转人工队列 <span id="queueCount" class="badge"></span></h2>
+          <div id="queueList" class="queue-list"></div>
+        </section>
+        <section class="workarea">
+          <div id="agentEmpty" class="empty">领取队列中的会话后，在此查看上下文并回复</div>
+          <div id="agentDetail" class="agent-detail hidden">
+            <div class="ctx-card">
+              <h2>上下文卡片</h2>
+              <div id="ctxContent"></div>
+            </div>
+            <div id="agentMessages" class="messages"></div>
+            <div class="draft-card">
+              <h2>工单草稿</h2>
+              <div class="draft-grid">
+                <label>分类 <input id="ticketCategory"></label>
+                <label>机型 <input id="ticketModel"></label>
+              </div>
+              <textarea id="ticketSummary" rows="3" placeholder="工单摘要"></textarea>
+              <div class="draft-actions">
+                <button id="ticketSubmit">提交工单</button>
+                <button id="sessionClose" class="danger">关闭会话</button>
+              </div>
+            </div>
+            <footer class="composer">
+              <input id="agentInput" placeholder="输入回复内容">
+              <button id="agentSend">回复</button>
+            </footer>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
