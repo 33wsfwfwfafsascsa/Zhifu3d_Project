@@ -17,13 +17,15 @@ from starlette.middleware.cors import CORSMiddleware
 from backend.processor.import_processor.base import setup_logging
 from backend.service.main_graph import run
 from backend.service.state import ServiceGraphState
-from backend.utils.mongo_history_utils import save_chat_message
+from backend.utils.mongo_history_utils import clear_history, get_recent_messages, save_chat_message
 from backend.utils.sse_utils import (
     SSEEvent,
     create_sse_queue,
     push_to_session,
     sse_generator,
 )
+from backend.utils.session_utils import STATUS_ESCALATED, STATUS_PROCESSING, get_session
+from backend.web.agent_routes import router as agent_router
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ app = FastAPI(
     title="智服3D-客服对话API",
     description="意图分类 → 机型确认 → RAG 检索 → 答案生成（非流式最小闭环）",
 )
+app.include_router(agent_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,6 +63,21 @@ def chat(request: ChatRequest) -> dict:
 
     session_id = request.session_id or str(uuid.uuid4())
     user_message_id = save_chat_message(session_id, "user", message)
+    existing = get_session(session_id)
+    if existing and existing.get("status") in (STATUS_ESCALATED, STATUS_PROCESSING):
+        reply = "您的问题已转接人工客服处理中，请稍候。"
+        if request.is_stream:
+            push_to_session(
+                session_id,
+                SSEEvent.FINAL,
+                {"answer": reply, "status": "escalated", "image_urls": [], "intent": "", "models": [], "citations": []},
+            )
+        return {
+            "session_id": session_id,
+            "answer": reply,
+            "escalate": True,
+            "handled_by_operator": True,
+        }
     if request.is_stream:
         threading.Thread(
             target=_run_turn,
@@ -95,6 +113,22 @@ async def stream(session_id: str, request: Request) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/api/history/{session_id}")
+def history(session_id: str) -> list[dict]:
+    """会话历史（用户/机器人/坐席消息，按时间正序）。"""
+    return [
+        {"role": msg.get("role"), "text": msg.get("text"), "ts": msg.get("ts")}
+        for msg in get_recent_messages(session_id)
+    ]
+
+
+@app.delete("/api/history/{session_id}")
+def delete_history(session_id: str) -> dict:
+    """清空会话历史。"""
+    deleted = clear_history(session_id)
+    return {"session_id": session_id, "deleted": deleted}
 
 
 def _run_turn(session_id: str, user_message_id: str, message: str) -> None:
