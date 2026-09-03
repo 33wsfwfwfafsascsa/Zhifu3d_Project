@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from bson import ObjectId
-from pymongo import ASCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient
 
 from backend.config.mongo_config import mongo_config
 
@@ -24,6 +24,9 @@ class HistoryMongoTool:
         self.db = self.client[mongo_config.db_name]
         self.chat_message = self.db["chat_message"]
         self.chat_message.create_index([("session_id", ASCENDING), ("ts", -1)])
+        self.session = self.db["session"]
+        self.session.create_index([("session_id", ASCENDING)], unique=True)
+        self.session.create_index([("status", ASCENDING), ("updated_at", DESCENDING)])
         logger.info("MongoDB 已连接: %s", mongo_config.db_name)
 
 
