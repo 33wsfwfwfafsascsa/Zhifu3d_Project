@@ -10,3 +10,4 @@ __pycache__/
 *.egg-info/
 HANDOFF.md
 .env.example
+HANDOFF2.md
