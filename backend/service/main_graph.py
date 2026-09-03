@@ -8,24 +8,25 @@ from backend.service.nodes.rag_agent import RagAgent
 from backend.service.nodes.reply_nodes import (
     chitchat_reply,
     complaint_reply,
-    order_placeholder_reply,
 )
+from backend.service.nodes.tool_agent import ToolAgent
 from backend.service.state import ServiceGraphState
 
 intent_classifier = IntentClassifier()
 model_confirm_node = NodeModelConfirm()
 rag_agent = RagAgent()
+tool_agent = ToolAgent()
 
 
 def _route_after_intent(state: ServiceGraphState) -> str:
-    """意图路由：闲聊/投诉直接回复，订单实体走占位，其余走机型确认。"""
+    """意图路由：闲聊/投诉直接回复；订单实体或售后意图走工具 Agent；其余走机型确认。"""
     intent = state.get("intent", "")
     if intent == "chitchat":
         return "chitchat_reply"
     if intent == "complaint":
         return "complaint_reply"
-    if state.get("order_ids"):
-        return "order_placeholder"
+    if state.get("order_ids") or intent == "after_sales":
+        return "tool_agent"
     return "model_confirm"
 
 
@@ -40,7 +41,7 @@ def build_service_graph():
     workflow.add_node("intent_classifier", intent_classifier)
     workflow.add_node("chitchat_reply", chitchat_reply)
     workflow.add_node("complaint_reply", complaint_reply)
-    workflow.add_node("order_placeholder", order_placeholder_reply)
+    workflow.add_node("tool_agent", tool_agent)
     workflow.add_node("model_confirm", model_confirm_node)
     workflow.add_node("rag_agent", rag_agent)
 
@@ -51,11 +52,11 @@ def build_service_graph():
         {
             "chitchat_reply": "chitchat_reply",
             "complaint_reply": "complaint_reply",
-            "order_placeholder": "order_placeholder",
+            "tool_agent": "tool_agent",
             "model_confirm": "model_confirm",
         },
     )
-    for node_name in ("chitchat_reply", "complaint_reply", "order_placeholder"):
+    for node_name in ("chitchat_reply", "complaint_reply", "tool_agent"):
         workflow.add_edge(node_name, END)
     workflow.add_conditional_edges(
         "model_confirm",
