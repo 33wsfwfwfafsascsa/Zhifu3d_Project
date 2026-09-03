@@ -8,6 +8,8 @@ docker-compose.yml
 __pycache__/
 *.py[cod]
 *.egg-info/
+eval/report.partial.json
+eval/badcases.partial.json
 HANDOFF.md
 .env.example
 HANDOFF2.md
