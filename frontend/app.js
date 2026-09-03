@@ -1,6 +1,8 @@
 const $ = (id) => document.getElementById(id);
 
-const sessionId = localStorage.getItem("zhifu3d_session") || crypto.randomUUID();
+const IMPORT_API = "http://127.0.0.1:8000"; // 知识库导入 API（8000，已开 CORS）
+
+let sessionId = localStorage.getItem("zhifu3d_session") || crypto.randomUUID();
 localStorage.setItem("zhifu3d_session", sessionId);
 $("sessionId").textContent = sessionId.slice(0, 8);
 
@@ -8,6 +10,24 @@ const chatMessages = $("chatMessages");
 const agentMessages = $("agentMessages");
 let activeAgentSession = null;
 let streamingBubble = null;
+
+// 轻量富文本：转义后渲染 **加粗**、## 标题、图片 URL 行；不做完整 Markdown
+function renderRich(text) {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(text).split(/\r?\n/).map((raw) => {
+    const line = raw.trim();
+    if (!line) return "<br>";
+    if (/^https?:\/\/\S+\.(?:jpe?g|png|gif|webp|svg)(?:\?\S*)?$/i.test(line)) {
+      return `<img class="md-img" src="${esc(line)}" alt="图片">`;
+    }
+    let html = esc(line);
+    html = html.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    if (/^#{1,3}\s/.test(line)) {
+      return `<span class="md-h">${html.replace(/^#{1,3}\s/, "")}</span>`;
+    }
+    return html;
+  }).join("<br>");
+}
 
 function appendMessage(container, role, text, extra = null) {
   const div = document.createElement("div");
@@ -19,7 +39,8 @@ function appendMessage(container, role, text, extra = null) {
     div.appendChild(meta);
   }
   const body = document.createElement("span");
-  body.textContent = text;
+  if (role === "assistant") body.innerHTML = renderRich(text);
+  else body.textContent = text;
   div.appendChild(body);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
@@ -48,7 +69,8 @@ function appendDelta(text) {
   const status = streamingBubble.querySelector(".stream-status");
   if (status) status.remove();
   const body = streamingBubble.querySelector("#streamBody");
-  body.textContent += text;
+  body.dataset.raw = (body.dataset.raw || "") + text;
+  body.innerHTML = renderRich(body.dataset.raw);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
@@ -57,7 +79,10 @@ function finalize(payload) {
   const status = streamingBubble.querySelector(".stream-status");
   if (status) status.remove();
   const body = streamingBubble.querySelector("#streamBody");
-  if (!body.textContent && payload.answer) body.textContent = payload.answer;
+  if (!body.dataset.raw && payload.answer) {
+    body.dataset.raw = payload.answer;
+    body.innerHTML = renderRich(payload.answer);
+  }
   if (payload.image_urls && payload.image_urls.length) {
     const images = document.createElement("div");
     images.className = "images";
@@ -105,8 +130,11 @@ async function fetchHistory() {
   }
 }
 
+let stream = null;
 function connectStream() {
+  if (stream) stream.close();
   const es = new EventSource(`/api/stream/${sessionId}`);
+  stream = es;
   es.addEventListener("ready", fetchHistory);
   es.addEventListener("delta", (e) => appendDelta(JSON.parse(e.data).delta));
   es.addEventListener("progress", (e) => {
@@ -145,6 +173,24 @@ async function sendChat() {
 $("chatSend").addEventListener("click", sendChat);
 $("chatInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendChat();
+});
+
+// ===== 视图切换 =====
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+    document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === tab.dataset.view));
+  });
+});
+
+// ===== 新建会话：换新 sessionId，旧会话保留在 Mongo 可追溯 =====
+$("newSession").addEventListener("click", () => {
+  sessionId = crypto.randomUUID();
+  localStorage.setItem("zhifu3d_session", sessionId);
+  $("sessionId").textContent = sessionId.slice(0, 8);
+  chatMessages.innerHTML = "";
+  streamingBubble = null;
+  connectStream();
 });
 
 // ===== 坐席工作台 =====
@@ -289,6 +335,99 @@ $("agentInput").addEventListener("keydown", (e) => {
 $("ticketSubmit").addEventListener("click", submitTicket);
 $("sessionClose").addEventListener("click", closeSession);
 
+// ===== 知识库导入（调用 8000 import_service） =====
+const dropZone = $("dropZone");
+const fileInput = $("fileInput");
+let importTimer = null;
+
+function setFile(file) {
+  $("fileName").textContent = file ? file.name : "";
+  $("uploadBtn").disabled = !file;
+}
+
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("drag"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag"));
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("drag");
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) { fileInput.files = e.dataTransfer.files; setFile(f); }
+});
+fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+
+async function loadCatalog() {
+  try {
+    const res = await fetch(`${IMPORT_API}/api/catalog`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const sel = $("productModel");
+    (data.models || []).forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      sel.appendChild(opt);
+    });
+  } catch (err) {
+    console.error("机型目录拉取失败（默认仅 general）", err);
+  }
+}
+
+function renderTask(s) {
+  $("taskStatus").textContent = s.status;
+  $("taskStatus").className = "task-status " + (s.status || "");
+  const nodes = [...(s.done_list || [])].map((n) => `<span class="node done">${n}</span>`)
+    .concat([...(s.running_list || [])].map((n) => `<span class="node running">${n}</span>`));
+  $("taskNodes").innerHTML = nodes.join("");
+  $("taskError").textContent = s.error || "";
+}
+
+async function pollTask(taskId) {
+  try {
+    const res = await fetch(`${IMPORT_API}/api/status/${taskId}`);
+    if (!res.ok) return;
+    const s = await res.json();
+    renderTask(s);
+    if (s.status === "completed" || s.status === "failed") {
+      clearInterval(importTimer);
+      importTimer = null;
+    }
+  } catch (err) {
+    console.error("进度查询失败", err);
+  }
+}
+
+$("uploadBtn").addEventListener("click", async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("knowledge_type", $("knowledgeType").value);
+  form.append("product_model", $("productModel").value);
+  $("uploadBtn").disabled = true;
+  try {
+    const res = await fetch(`${IMPORT_API}/api/upload`, { method: "POST", body: form });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || `上传失败（HTTP ${res.status}）`);
+    }
+    const data = await res.json();
+    $("taskCard").classList.remove("hidden");
+    $("taskError").textContent = "";
+    renderTask({ status: "pending", done_list: [], running_list: [], error: "" });
+    pollTask(data.task_id);
+    importTimer = setInterval(() => pollTask(data.task_id), 1500);
+  } catch (err) {
+    $("taskCard").classList.remove("hidden");
+    $("taskStatus").textContent = "failed";
+    $("taskStatus").className = "task-status failed";
+    $("taskError").textContent = String(err.message || err);
+  } finally {
+    $("uploadBtn").disabled = !fileInput.files[0];
+  }
+});
+
+loadCatalog();
 connectStream();
 pollQueue();
 setInterval(pollQueue, 3000);

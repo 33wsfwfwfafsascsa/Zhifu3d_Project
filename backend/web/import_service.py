@@ -73,6 +73,12 @@ def health() -> dict:
     return {"ok": True}
 
 
+@app.get("/api/catalog")
+def get_catalog() -> dict:
+    """标准机型目录（ModelCatalog），供上传页「适用机型」下拉选择。"""
+    return {"code": 200, "models": load_model_catalog()}
+
+
 @app.post("/api/upload")
 async def upload_file(
     background_tasks: BackgroundTasks,
