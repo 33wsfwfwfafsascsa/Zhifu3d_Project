@@ -15,6 +15,7 @@ from backend.service.constants import (
 from backend.service.prompt.intent import INTENT_SYSTEM_PROMPT, INTENT_USER_TEMPLATE
 from backend.service.state import ServiceGraphState
 from backend.utils.llm_utils import get_llm_client
+from backend.utils.sse_utils import push_progress
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,8 @@ class IntentClassifier:
 
     def __call__(self, state: ServiceGraphState) -> ServiceGraphState:
         query = state.get("original_query", "")
+        if state.get("is_stream"):
+            push_progress(state.get("session_id"), "understanding", "正在理解您的问题…")
         intent, confidence, order_ids = self._classify(query)
         state["intent"] = intent
         state["confidence"] = confidence

@@ -1,8 +1,9 @@
-"""联网搜索节点：默认关闭（ADR-0003），启用后经 DashScope MCP 检索公网。"""
+"""联网搜索节点：经百炼 DashScope WebSearch MCP 检索公网，兜底触发（Day 5 决策）。"""
 
-import asyncio
 import json
 import logging
+
+import httpx
 
 from backend.config.mcp_config import mcp_config
 from backend.processor.query_processor.base import NodeBase
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class NodeWebSearchMcp(NodeBase[QueryGraphState]):
-    """MCP 联网搜索，失败不影响主链路（PRD 7.2）。"""
+    """MCP 联网搜索，失败不影响主链路（PRD 7.2）。百炼 MCP 为无状态 HTTP，直接 JSON-RPC 调用。"""
 
     name: str = "node_web_search_mcp"
 
@@ -25,8 +26,7 @@ class NodeWebSearchMcp(NodeBase[QueryGraphState]):
         if not query:
             return {"web_search_docs": []}
         try:
-            result = asyncio.run(self._mcp_call(query))
-            pages = json.loads(result.content[0].text).get("pages") or []
+            pages = self._search_pages(query)
             docs: list[dict] = []
             for item in pages:
                 snippet = (item.get("snippet") or "").strip()
@@ -44,25 +44,41 @@ class NodeWebSearchMcp(NodeBase[QueryGraphState]):
             logger.error("联网搜索失败（不影响主链路）: %s", exc)
             return {"web_search_docs": []}
 
-    async def _mcp_call(self, query: str):
-        """调用 DashScope MCP 联网搜索工具。"""
-        from agents.mcp import MCPServerStreamableHttp
-
-        search_mcp = MCPServerStreamableHttp(
-            name="search_mcp",
-            params={
-                "url": mcp_config.base_url,
-                "Authorization": f"Bearer {mcp_config.api_key}",
-                "timeout": 10,
+    def _search_pages(self, query: str, count: int = 5) -> list[dict]:
+        """初始化握手 + 调用 bailian_web_search，返回 pages 列表。"""
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        if mcp_config.api_key:
+            headers["Authorization"] = f"Bearer {mcp_config.api_key}"
+        init_payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "zhifu3d", "version": "1.0"},
             },
-            cache_tools_list=True,
-            max_retry_attempts=3,
-        )
-        try:
-            await search_mcp.connect()
-            return await search_mcp.call_tool(
-                tool_name="bailian_web_search",
-                arguments={"query": query, "count": 5},
-            )
-        finally:
-            await search_mcp.cleanup()
+        }
+        call_payload = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "bailian_web_search",
+                "arguments": {"query": query, "count": count},
+            },
+        }
+        with httpx.Client(timeout=15.0) as client:
+            client.post(mcp_config.base_url, json=init_payload, headers=headers).raise_for_status()
+            response = client.post(mcp_config.base_url, json=call_payload, headers=headers)
+            response.raise_for_status()
+        body = response.json()
+        result = body.get("result") or {}
+        content = result.get("content") or []
+        if not content or result.get("isError"):
+            return []
+        data = json.loads(content[0].get("text") or "{}")
+        return data.get("pages") or []

@@ -48,6 +48,12 @@ def push_to_session(session_id: str, event: str, data: dict[str, Any]) -> None:
         stream_queue.put({"event": event, "data": data})
 
 
+def push_progress(session_id: str | None, stage: str, label: str) -> None:
+    """推送阶段进度事件；无会话或 SSE 队列时静默忽略。"""
+    if session_id:
+        push_to_session(session_id, SSEEvent.PROGRESS, {"stage": stage, "label": label})
+
+
 async def sse_generator(session_id: str, request: Request) -> AsyncGenerator[str, None]:
     """FastAPI StreamingResponse 生成器。"""
     stream_queue = get_sse_queue(session_id)

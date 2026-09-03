@@ -10,6 +10,7 @@ from backend.service.state import ServiceGraphState
 from backend.service.tools import TOOL_MAP, TOOL_SPECS, ToolFailure, ToolNotFound, call_tool
 from backend.utils.llm_utils import get_llm_client
 from backend.utils.mongo_history_utils import get_recent_messages, save_chat_message
+from backend.utils.sse_utils import push_progress
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ TOOL_FAILURE_REPLY = "查询服务暂时不可用，已为您转接人工客服�
 ORDER_NOT_FOUND_REPLY = "未查询到订单 {order_id}，请核对订单号后重试。"
 POLICY_NOT_FOUND_REPLY = "未找到该商品类型的退换货政策，请说明商品类别（如“3D打印机整机”）后重试。"
 NEED_INFO_REPLY = "请补充订单号或商品类别，我才能帮您查询。"
+WARRANTY_KEYWORDS = ("保修", "质保", "在保", "保内", "保外")
 
 
 def _render_order(data: dict) -> str:
@@ -96,8 +98,10 @@ class ToolAgent:
         intent = state.get("intent", "consult")
         order_ids = state.get("order_ids") or []
 
+        if state.get("is_stream"):
+            push_progress(session_id, "querying", "正在查询业务系统…")
         if order_ids:
-            results, failures = self._run_order_path(order_ids[0], intent)
+            results, failures = self._run_order_path(order_ids[0], intent, query)
         else:
             results, failures = self._run_llm_fallback(query)
 
@@ -117,11 +121,11 @@ class ToolAgent:
         )
         return state
 
-    def _run_order_path(self, order_id: str, intent: str) -> tuple[list[dict], int]:
-        """订单号路径：售后意图走保修判定，其余串联订单 + 物流。"""
+    def _run_order_path(self, order_id: str, intent: str, query: str) -> tuple[list[dict], int]:
+        """订单号路径：问保修才走保修判定，否则串联订单 + 物流（修复退款/退货类误路由）。"""
         results: list[dict] = []
         failures = 0
-        if intent == "after_sales":
+        if intent == "after_sales" and any(keyword in query for keyword in WARRANTY_KEYWORDS):
             names = ["query_warranty"]
         else:
             names = ["query_order", "query_logistics"]

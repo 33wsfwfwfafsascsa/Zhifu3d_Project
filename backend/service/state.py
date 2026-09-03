@@ -24,3 +24,4 @@ class ServiceGraphState(TypedDict, total=False):
     ticket_draft: dict
     entities: dict
     is_stream: bool
+    enable_web_search: bool

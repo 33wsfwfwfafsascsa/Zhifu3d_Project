@@ -23,6 +23,7 @@ def get_llm_client(model: str | None = None, json_mode: bool = False) -> ChatOpe
         api_key=lm_config.api_key,
         base_url=lm_config.base_url,
         temperature=lm_config.llm_temperature,
+        timeout=lm_config.llm_timeout,
         model_kwargs=model_kwargs,
     )
     _llm_client_cache[key] = client

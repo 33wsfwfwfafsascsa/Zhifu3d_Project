@@ -4,7 +4,9 @@
 """
 
 import logging
+import os
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -13,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi import Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 from starlette.responses import StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 
@@ -31,6 +34,13 @@ from backend.web.agent_routes import router as agent_router
 
 logger = logging.getLogger(__name__)
 
+# A8 最小版限流：内存固定窗口，按客户端 IP 统计 /api/chat 请求数（进程内，单实例够用）。
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
+RATE_LIMIT_WINDOW_SECONDS = 60.0
+_rate_hits: dict[str, list[float]] = {}
+_rate_lock = threading.Lock()
+
+
 app = FastAPI(
     title="智服3D-客服对话API",
     description="意图分类 → 机型确认 → RAG 检索 → 答案生成（非流式最小闭环）",
@@ -43,6 +53,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """/api/chat 超限返回 429；其余路径直接放行。"""
+    if request.url.path == "/api/chat" and request.method == "POST":
+        client = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        with _rate_lock:
+            if len(_rate_hits) > 1024:  # 防止进程长时间运行后字典无限膨胀
+                _rate_hits.clear()
+            hits = [t for t in _rate_hits.get(client, []) if now - t < RATE_LIMIT_WINDOW_SECONDS]
+            if len(hits) >= RATE_LIMIT_MAX:
+                _rate_hits[client] = hits
+                return JSONResponse(status_code=429, content={"detail": "操作太频繁，请稍后再试"})
+            hits.append(now)
+            _rate_hits[client] = hits
+    return await call_next(request)
 
 
 class ChatRequest(BaseModel):
@@ -92,6 +120,7 @@ def chat(request: ChatRequest) -> dict:
         "session_id": session_id,
         "user_message_id": user_message_id,
         "original_query": message,
+        "enable_web_search": True,
     }
     try:
         result = run(initial_state)
@@ -142,6 +171,7 @@ def _run_turn(session_id: str, user_message_id: str, message: str) -> None:
                 "user_message_id": user_message_id,
                 "original_query": message,
                 "is_stream": True,
+                "enable_web_search": True,
             }
         )
     except Exception as exc:

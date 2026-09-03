@@ -33,15 +33,20 @@ function appendUser(text) {
 function startStreamingBubble() {
   streamingBubble = document.createElement("div");
   streamingBubble.className = "msg assistant";
+  const status = document.createElement("span");
+  status.className = "stream-status";
+  status.textContent = "正在处理…";
   const body = document.createElement("span");
   body.id = "streamBody";
-  streamingBubble.appendChild(body);
+  streamingBubble.append(status, body);
   chatMessages.appendChild(streamingBubble);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function appendDelta(text) {
   if (!streamingBubble) startStreamingBubble();
+  const status = streamingBubble.querySelector(".stream-status");
+  if (status) status.remove();
   const body = streamingBubble.querySelector("#streamBody");
   body.textContent += text;
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -49,6 +54,8 @@ function appendDelta(text) {
 
 function finalize(payload) {
   if (!streamingBubble) startStreamingBubble();
+  const status = streamingBubble.querySelector(".stream-status");
+  if (status) status.remove();
   const body = streamingBubble.querySelector("#streamBody");
   if (!body.textContent && payload.answer) body.textContent = payload.answer;
   if (payload.image_urls && payload.image_urls.length) {
@@ -102,6 +109,11 @@ function connectStream() {
   const es = new EventSource(`/api/stream/${sessionId}`);
   es.addEventListener("ready", fetchHistory);
   es.addEventListener("delta", (e) => appendDelta(JSON.parse(e.data).delta));
+  es.addEventListener("progress", (e) => {
+    const data = JSON.parse(e.data);
+    const status = streamingBubble ? streamingBubble.querySelector(".stream-status") : null;
+    if (status && data.label) status.textContent = data.label;
+  });
   es.addEventListener("final", (e) => finalize(JSON.parse(e.data)));
   es.addEventListener("escalate", (e) => showEscalate(JSON.parse(e.data)));
   es.addEventListener("operator", (e) => appendOperator(JSON.parse(e.data)));

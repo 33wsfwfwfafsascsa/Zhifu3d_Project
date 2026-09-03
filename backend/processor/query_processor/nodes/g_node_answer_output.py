@@ -108,8 +108,6 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
                 field_value = str(doc.get(field) or "").strip()
                 if field_value:
                     meta_tags.append(template.format(field_value))
-            if doc.get("score") is not None:
-                meta_tags.append(f"[score={float(doc['score']):.4f}]")
             entry = " ".join(meta_tags) + "\n" + str(doc.get("content") or "")
             if used_chars + len(entry) > MAX_CONTEXT_CHARS:
                 break

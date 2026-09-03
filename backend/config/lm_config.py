@@ -16,6 +16,7 @@ class LLMConfig:
     llm_model: str
     item_model: str
     llm_temperature: float
+    llm_timeout: float
 
 
 lm_config = LLMConfig(
@@ -25,4 +26,5 @@ lm_config = LLMConfig(
     llm_model=os.getenv("LLM_DEFAULT_MODEL", ""),
     item_model=os.getenv("ITEM_MODEL", ""),
     llm_temperature=float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.3")),
+    llm_timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "60")),
 )
