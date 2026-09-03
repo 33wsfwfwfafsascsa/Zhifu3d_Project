@@ -6,6 +6,7 @@ from backend.service.nodes.rag_agent import NOT_FOUND_REPLY
 from backend.service.state import ServiceGraphState
 from backend.utils.llm_utils import get_llm_client
 from backend.utils.mongo_history_utils import get_recent_messages, save_chat_message
+from backend.utils.sse_utils import SSEEvent, push_to_session
 from backend.utils.session_utils import (
     STATUS_ESCALATED,
     STATUS_PROCESSING,
@@ -105,6 +106,16 @@ def escalation_output(state: ServiceGraphState) -> ServiceGraphState:
     state["entities"] = entities
     state["answer"] = ESCALATED_REPLY
     state["escalate"] = True
+    push_to_session(
+        session_id,
+        SSEEvent.ESCALATE,
+        {
+            "summary": summary,
+            "models": models,
+            "citations": state.get("citations") or [],
+            "ticket_draft": ticket_draft,
+        },
+    )
     save_chat_message(session_id, "assistant", ESCALATED_REPLY)
     logger.info("会话已转人工: session=%s reason=%s", session_id, reason)
     return state

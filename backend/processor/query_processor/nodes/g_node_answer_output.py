@@ -8,6 +8,7 @@ from backend.processor.query_processor.prompt.answer_prompt import ANSWER_PROMPT
 from backend.processor.query_processor.state import QueryGraphState
 from backend.utils.llm_utils import get_llm_client
 from backend.utils.mongo_history_utils import save_chat_message
+from backend.utils.sse_utils import SSEEvent, push_to_session
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,11 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
 
     def process(self, state: QueryGraphState) -> QueryGraphState:
         prompt = self._construct_prompt(state)
-        answer = self._generate(prompt)
+        answer = self._generate(
+            prompt,
+            session_id=state.get("session_id"),
+            is_stream=bool(state.get("is_stream")),
+        )
         state["answer"] = answer
         save_chat_message(
             session_id=state.get("session_id", "default"),
@@ -44,13 +49,50 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
             question=question,
         )
 
-    def _generate(self, prompt: str) -> str:
+    def _generate(self, prompt: str, session_id: str | None = None, is_stream: bool = False) -> str:
         try:
-            response = get_llm_client().invoke(prompt)
+            client = get_llm_client()
+            if is_stream and session_id:
+                return self._generate_stream(client, prompt, session_id)
+            response = client.invoke(prompt)
             return str(response.content or "").strip()
         except Exception as exc:
             logger.error("答案生成失败: %s", exc)
             return "抱歉，生成回答时出现错误，请稍后重试或转人工客服。"
+
+    def _generate_stream(self, client, prompt: str, session_id: str) -> str:
+        """流式生成并逐块推送 delta；异常时降级单次调用推单条 delta。"""
+        chunks: list[str] = []
+        try:
+            for chunk in client.stream(prompt):
+                text = self._chunk_text(chunk)
+                if text:
+                    chunks.append(text)
+                    push_to_session(session_id, SSEEvent.DELTA, {"delta": text})
+        except Exception as exc:
+            logger.warning("流式生成失败，降级单次调用: %s", exc)
+            if not chunks:
+                response = client.invoke(prompt)
+                text = str(response.content or "").strip()
+                if text:
+                    chunks.append(text)
+                    push_to_session(session_id, SSEEvent.DELTA, {"delta": text})
+        return "".join(chunks).strip()
+
+    @staticmethod
+    def _chunk_text(chunk) -> str:
+        content = getattr(chunk, "content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    parts.append(str(block.get("text") or ""))
+            return "".join(parts)
+        return ""
 
     def _format_reranked_docs(self, reranked_docs: list[dict]) -> tuple[str, int]:
         lines: list[str] = []

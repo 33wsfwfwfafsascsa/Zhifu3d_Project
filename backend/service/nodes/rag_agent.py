@@ -38,6 +38,7 @@ class RagAgent:
             "models": state.get("models") or [],
             "knowledge_types": knowledge_types,
             "history": state.get("history") or [],
+            "is_stream": state.get("is_stream"),
         }
 
         reranked = self._retrieve(base_state)
