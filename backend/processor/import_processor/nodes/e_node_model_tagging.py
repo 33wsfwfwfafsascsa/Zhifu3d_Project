@@ -16,10 +16,6 @@ from backend.processor.import_processor.prompt.model_tagging import (
 )
 from backend.processor.import_processor.state import ImportGraphState
 
-# 光固化 FAQ 常以「光固化/树脂/离型膜」表述而不写具体机型，标注时归一到 Halot Mage
-HALOT_HINTS = ("光固化", "Halot", "树脂", "离型膜", "料槽", "UV 灯")
-
-
 class NodeModelTagging(BaseNode):
     """按 Q3 策略打 product_model / knowledge_type 标签；对 kb_entities 只读（ADR-0002）。"""
 
@@ -52,9 +48,6 @@ class NodeModelTagging(BaseNode):
             for idx, chunk in enumerate(chunks, start=1):
                 raw = self._tag_chunk(chunk, catalog)
                 chunk["product_model"] = self._normalize(raw, catalog)
-                if chunk["product_model"] == MODEL_GENERAL and "Halot Mage" in catalog:
-                    if self._has_halot_hint(chunk):
-                        chunk["product_model"] = "Halot Mage"
                 chunk["knowledge_type"] = knowledge_type
                 if idx % 20 == 0 or idx == len(chunks):
                     self.logger.info("chunk 级标注进度：%s/%s", idx, len(chunks))
@@ -84,12 +77,6 @@ class NodeModelTagging(BaseNode):
         except Exception as exc:
             self.logger.error("机型标注 LLM 调用失败：%s，回退 general", exc)
             return MODEL_GENERAL
-
-    @staticmethod
-    def _has_halot_hint(chunk: Dict) -> bool:
-        """判断切片是否属于光固化/Halot 场景。"""
-        text = f"{chunk.get('title', '')}\n{chunk.get('content', '')}"
-        return any(hint in text for hint in HALOT_HINTS)
 
     @staticmethod
     def _normalize(raw: str, catalog: List[str]) -> str:

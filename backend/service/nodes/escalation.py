@@ -1,4 +1,4 @@
-"""转人工判定与输出节点：五类触发 + 摘要 + TicketDraft 落库（ADR-0005）。"""
+"""转人工判定与输出节点：触发条件 + 摘要 + TicketDraft 落库（ADR-0005 / ADR-0008）。"""
 
 import logging
 
@@ -43,7 +43,11 @@ SUMMARY_PROMPT = """你是客服会话摘要员。请把下面的对话压缩成
 
 
 def escalation_check(state: ServiceGraphState) -> ServiceGraphState:
-    """每轮结束前检查五类转人工触发条件。"""
+    """每轮结束前检查转人工触发条件。
+
+    ADR-0008 起：空结果 + 低置信度不再即时转人工；保留投诉、显式要求、
+    连续 2 轮未解决/空结果（工具失败由 tool_agent 置 escalate_reason）。
+    """
     session_id = state.get("session_id", "")
     query = state.get("original_query", "")
     reason = state.get("escalate_reason") or ""
@@ -59,8 +63,6 @@ def escalation_check(state: ServiceGraphState) -> ServiceGraphState:
         doc = bump_streaks(session_id, negative, not_found)
         if doc.get("unresolved_streak", 0) >= 2 or doc.get("not_found_streak", 0) >= 2:
             reason = "unresolved"
-        elif not_found and float(state.get("confidence") or 0) < 0.55:
-            reason = "no_result_low_confidence"
 
     if reason:
         state["escalate_reason"] = reason

@@ -17,6 +17,11 @@ function renderRich(text) {
   return String(text).split(/\r?\n/).map((raw) => {
     const line = raw.trim();
     if (!line) return "<br>";
+    const mdImg = /^!\[([^\]]*)\]\(([^)]+)\)$/;
+    if (mdImg.test(line)) {
+      const m = line.match(mdImg);
+      return `<img class="md-img" src="${esc(m[2])}" alt="${esc(m[1] || "图片")}">`;
+    }
     if (/^https?:\/\/\S+\.(?:jpe?g|png|gif|webp|svg)(?:\?\S*)?$/i.test(line)) {
       return `<img class="md-img" src="${esc(line)}" alt="图片">`;
     }
@@ -79,25 +84,10 @@ function finalize(payload) {
   const status = streamingBubble.querySelector(".stream-status");
   if (status) status.remove();
   const body = streamingBubble.querySelector("#streamBody");
-  if (!body.dataset.raw && payload.answer) {
+  // 以 final 载荷为准重渲染：后端已对图片做「存在性 + 数量」收口
+  if (payload.answer) {
     body.dataset.raw = payload.answer;
     body.innerHTML = renderRich(payload.answer);
-  }
-  if (payload.image_urls && payload.image_urls.length) {
-    const images = document.createElement("div");
-    images.className = "images";
-    payload.image_urls.forEach((url) => {
-      const img = document.createElement("img");
-      img.src = url;
-      images.appendChild(img);
-    });
-    streamingBubble.appendChild(images);
-  }
-  if (payload.citations && payload.citations.length) {
-    const cites = document.createElement("div");
-    cites.className = "citations";
-    cites.textContent = "引用：" + payload.citations.map((c) => c.title || c.source).filter(Boolean).join("、");
-    streamingBubble.appendChild(cites);
   }
   streamingBubble = null;
 }
@@ -175,6 +165,12 @@ $("chatInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") sendChat();
 });
 
+// 图片点击放大/还原：仅处理助手气泡内的 md-img
+chatMessages.addEventListener("click", (e) => {
+  const img = e.target && e.target.closest ? e.target.closest("img.md-img") : null;
+  if (img) img.classList.toggle("zoomed");
+});
+
 // ===== 视图切换 =====
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -237,6 +233,7 @@ async function takeSession(sid) {
     activeAgentSession = sid;
     await loadAgentDetail(sid);
     pollQueue();
+    pollHandled();
   } catch (err) {
     alert("领取失败：" + err);
   }
@@ -251,12 +248,14 @@ async function loadAgentDetail(sid) {
     $("agentDetail").classList.remove("hidden");
     const entities = s.entities || {};
     $("ctxContent").innerHTML = `
+      <div class="row"><b>会话</b>${sid.slice(0, 8)}</div>
       <div class="row"><b>状态</b>${s.status || ""}（${s.operator_name || "未认领"}）</div>
       <div class="row"><b>原因</b>${s.escalate_reason || ""}</div>
       <div class="row"><b>机型</b>${(s.models || []).join("、") || "—"}</div>
       <div class="row"><b>订单</b>${(entities.order_ids || []).join("、") || "—"}</div>
       <div class="row"><b>摘要</b>${s.summary || "—"}</div>`;
     const draft = s.ticket_draft || {};
+    $("draftSessionId").textContent = sid.slice(0, 8);
     $("ticketCategory").value = draft.category || "";
     $("ticketModel").value = draft.model || "";
     $("ticketSummary").value = draft.summary || "";
@@ -267,6 +266,36 @@ async function loadAgentDetail(sid) {
     });
   } catch (err) {
     console.error("加载会话详情失败", err);
+  }
+}
+
+async function pollHandled() {
+  const operatorName = $("operatorName").value.trim() || "坐席A";
+  try {
+    const res = await fetch(`/api/agent/sessions?operator_name=${encodeURIComponent(operatorName)}`);
+    if (!res.ok) return;
+    const items = await res.json();
+    $("handledCount").textContent = items.length ? `(${items.length})` : "";
+    const list = $("handledList");
+    list.innerHTML = "";
+    items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "queue-card";
+      const reason = document.createElement("div");
+      reason.className = "reason";
+      reason.textContent = `${item.session_id.slice(0, 8)} · ${item.status === "processing" ? "处理中" : "已关闭"}`;
+      const summary = document.createElement("div");
+      summary.className = "summary";
+      summary.textContent = item.summary || item.customer_desc || "";
+      card.append(reason, summary);
+      card.addEventListener("click", () => {
+        activeAgentSession = item.session_id;
+        loadAgentDetail(item.session_id);
+      });
+      list.appendChild(card);
+    });
+  } catch (err) {
+    console.error("已接待客户列表拉取失败", err);
   }
 }
 
@@ -326,6 +355,7 @@ async function closeSession() {
   $("agentDetail").classList.add("hidden");
   $("agentEmpty").classList.remove("hidden");
   pollQueue();
+  pollHandled();
 }
 
 $("agentSend").addEventListener("click", sendReply);
@@ -334,6 +364,7 @@ $("agentInput").addEventListener("keydown", (e) => {
 });
 $("ticketSubmit").addEventListener("click", submitTicket);
 $("sessionClose").addEventListener("click", closeSession);
+$("draftToggle").addEventListener("click", () => $("draftBody").classList.toggle("hidden"));
 
 // ===== 知识库导入（调用 8000 import_service） =====
 const dropZone = $("dropZone");
@@ -367,6 +398,10 @@ async function loadCatalog() {
       opt.value = m;
       opt.textContent = m;
       sel.appendChild(opt);
+      const ticketOpt = document.createElement("option");
+      ticketOpt.value = m;
+      ticketOpt.textContent = m;
+      $("ticketModel").appendChild(ticketOpt);
     });
   } catch (err) {
     console.error("机型目录拉取失败（默认仅 general）", err);
@@ -430,4 +465,6 @@ $("uploadBtn").addEventListener("click", async () => {
 loadCatalog();
 connectStream();
 pollQueue();
+pollHandled();
 setInterval(pollQueue, 3000);
+setInterval(pollHandled, 5000);

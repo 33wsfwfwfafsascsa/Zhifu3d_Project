@@ -6,6 +6,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.config.lm_config import lm_config
+from backend.service.constants import USER_WAIT_LABEL
 from backend.service.state import ServiceGraphState
 from backend.service.tools import TOOL_MAP, TOOL_SPECS, ToolFailure, ToolNotFound, call_tool
 from backend.utils.llm_utils import get_llm_client
@@ -99,7 +100,7 @@ class ToolAgent:
         order_ids = state.get("order_ids") or []
 
         if state.get("is_stream"):
-            push_progress(session_id, "querying", "正在查询业务系统…")
+            push_progress(session_id, "querying", USER_WAIT_LABEL)
         if order_ids:
             results, failures = self._run_order_path(order_ids[0], intent, query)
         else:

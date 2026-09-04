@@ -128,7 +128,11 @@ class NodeModelConfirm(NodeBase[QueryGraphState]):
         align_result: dict[str, list[str]],
         history: list[dict],
     ) -> QueryGraphState:
-        """按确认状态更新 state，并回填历史消息的机型关联。"""
+        """按确认状态更新 state，并回填历史消息的机型关联。
+
+        机型是检索过滤器而非前置门禁（ADR-0008）：未确认或仅有候选时不再反问阻塞，
+        直接以无机型过滤检索，候选机型记录为 model_options 供答案文末提示。
+        """
         confirmed = align_result["confirmed"]
         options = align_result["options"]
 
@@ -140,14 +144,11 @@ class NodeModelConfirm(NodeBase[QueryGraphState]):
             ]
             if ids_to_update:
                 update_message_models(ids_to_update, confirmed)
-        elif options:
-            state["models"] = []
-            state["needs_model_confirmation"] = True
-            state["answer"] = f"您是想问以下哪个机型：{'、'.join(options)}？请明确一下型号。"
         else:
             state["models"] = []
-            state["needs_model_confirmation"] = True
-            state["answer"] = "抱歉，未找到相关机型，请提供准确的打印机型号以便我为您查询。"
+            state["needs_model_confirmation"] = False
+            if options:
+                state["model_options"] = options
 
         user_message_id = state.get("user_message_id")
         if user_message_id:

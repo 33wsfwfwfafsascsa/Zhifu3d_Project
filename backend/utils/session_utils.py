@@ -113,6 +113,20 @@ def list_queue() -> list[dict[str, Any]]:
         return []
 
 
+def list_handled(operator_name: str) -> list[dict[str, Any]]:
+    """该坐席领取/接待过的会话（含会话 ID，按更新时间倒序）。"""
+    tool = get_history_mongo_tool()
+    if tool is None:
+        return []
+    try:
+        return list(
+            tool.session.find({"operator_name": operator_name}).sort("updated_at", -1)
+        )
+    except Exception as exc:
+        logger.error("查询已接待会话失败: %s", exc)
+        return []
+
+
 def claim_session(session_id: str, operator_name: str) -> dict[str, Any] | None:
     """原子领取：仅 status=escalated 可被抢占为 processing（一人一单）。"""
     tool = get_history_mongo_tool()

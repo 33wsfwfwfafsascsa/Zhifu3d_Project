@@ -11,7 +11,7 @@ from backend.utils.milvus_utils import create_kb_chunks_collection, escape_milvu
 
 
 class NodeImportMilvus(BaseNode):
-    """切片数据入库；幂等键 = file_title + knowledge_type。"""
+    """切片数据入库；幂等键 = file_title + product_model + knowledge_type。"""
 
     name: str = "node_import_milvus"
 
@@ -64,17 +64,31 @@ class NodeImportMilvus(BaseNode):
     def _step_3_clean_old_data(self, client, chunks: List[Dict[str, Any]]) -> None:
         file_title = chunks[0].get("file_title")
         knowledge_type = chunks[0].get("knowledge_type")
-        if not file_title or not knowledge_type:
-            raise StateFieldError(field_name="chunks", message="file_title/knowledge_type 不能为空", expected_type=list)
+        product_model = chunks[0].get("product_model")
+        if not file_title or not knowledge_type or not product_model:
+            raise StateFieldError(
+                field_name="chunks",
+                message="file_title/product_model/knowledge_type 不能为空",
+                expected_type=list,
+            )
 
         safe_title = escape_milvus_string(file_title)
         safe_type = escape_milvus_string(knowledge_type)
+        safe_model = escape_milvus_string(product_model)
         try:
             client.delete(
                 collection_name=milvus_config.chunks_collection,
-                filter=f"file_title=='{safe_title}' and knowledge_type=='{safe_type}'",
+                filter=(
+                    f"file_title=='{safe_title}' and product_model=='{safe_model}' "
+                    f"and knowledge_type=='{safe_type}'"
+                ),
             )
-            self.logger.info("已清理旧数据：file_title=%s, knowledge_type=%s", file_title, knowledge_type)
+            self.logger.info(
+                "已清理旧数据：file_title=%s, product_model=%s, knowledge_type=%s",
+                file_title,
+                product_model,
+                knowledge_type,
+            )
         except Exception as exc:
             raise MilvusError(f"Milvus 数据删除失败: {exc}") from exc
 

@@ -6,7 +6,7 @@
   <title>智服3D · 演示控制台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -65,15 +65,27 @@
                 </div>
                 <div id="agentMessages" class="messages"></div>
                 <div class="draft-card">
-                  <h2>工单草稿</h2>
-                  <div class="draft-grid">
-                    <label>分类 <input id="ticketCategory"></label>
-                    <label>机型 <input id="ticketModel"></label>
-                  </div>
-                  <textarea id="ticketSummary" rows="3" placeholder="工单摘要"></textarea>
-                  <div class="draft-actions">
-                    <button id="ticketSubmit">提交工单</button>
-                    <button id="sessionClose" class="danger">关闭会话</button>
+                  <h2><button id="draftToggle" class="draft-toggle" type="button">工单草稿</button></h2>
+                  <div id="draftBody" class="draft-body hidden">
+                    <div class="draft-grid">
+                      <label>分类
+                        <select id="ticketCategory">
+                          <option value="咨询">咨询</option>
+                          <option value="故障">故障</option>
+                          <option value="售后">售后</option>
+                          <option value="投诉">投诉</option>
+                        </select>
+                      </label>
+                      <label>机型
+                        <select id="ticketModel"><option value="">未指定</option></select>
+                      </label>
+                    </div>
+                    <div class="draft-meta">会话 ID：<span id="draftSessionId">—</span></div>
+                    <textarea id="ticketSummary" rows="3" placeholder="工单摘要"></textarea>
+                    <div class="draft-actions">
+                      <button id="ticketSubmit">提交工单</button>
+                      <button id="sessionClose" class="danger">关闭会话</button>
+                    </div>
                   </div>
                 </div>
                 <footer class="composer">
@@ -81,6 +93,10 @@
                   <button id="agentSend">回复</button>
                 </footer>
               </div>
+            </section>
+            <section class="handled">
+              <h2>已接待客户 <span id="handledCount" class="badge"></span></h2>
+              <div id="handledList" class="queue-list"></div>
             </section>
           </div>
         </div>

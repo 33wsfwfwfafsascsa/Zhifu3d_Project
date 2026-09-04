@@ -10,14 +10,15 @@ from backend.processor.query_processor.nodes.d_node_web_search_mcp import NodeWe
 from backend.processor.query_processor.nodes.e_node_rrf import NodeRrf
 from backend.processor.query_processor.nodes.f_node_rerank import NodeRerank
 from backend.processor.query_processor.nodes.g_node_answer_output import NodeAnswerOutput
-from backend.service.constants import KNOWLEDGE_TYPE_BY_INTENT
+from backend.service.constants import KNOWLEDGE_TYPE_BY_INTENT, USER_WAIT_LABEL
 from backend.service.state import ServiceGraphState
 from backend.utils.sse_utils import push_progress
+from backend.processor.query_processor.prompt.answer_prompt import NOT_FOUND_REPLY
 
 logger = logging.getLogger(__name__)
 
-NOT_FOUND_REPLY = "抱歉，没有找到与您问题相关的知识内容，建议转人工客服获取帮助。"
 RELAXED_NOTE = "\n\n（注：未在您所提机型下找到相关内容，已放宽至通用知识。）"
+MODEL_HINT_NOTE = "\n\n（如需机型专属指引，请补充具体型号。）"
 WEB_SEARCH_MIN_SCORE = 0.6
 
 
@@ -50,7 +51,7 @@ class RagAgent:
         }
 
         if is_stream:
-            push_progress(session_id, "searching", "正在检索知识库…")
+            push_progress(session_id, "searching", USER_WAIT_LABEL)
         reranked = self._retrieve(base_state)
         relaxed = False
         if not reranked and base_state["models"]:
@@ -71,21 +72,29 @@ class RagAgent:
             return state
 
         if is_stream:
-            push_progress(session_id, "generating", "正在生成回答…")
+            push_progress(session_id, "generating", USER_WAIT_LABEL)
         answer_state = {**base_state, "reranked_docs": reranked}
         result = self.node_answer(answer_state)
         answer = result.get("answer", "")
         if relaxed:
             answer += RELAXED_NOTE
+        elif state.get("model_options") and not base_state["models"]:
+            answer += MODEL_HINT_NOTE
         state["answer"] = answer
         state["citations"] = self._build_citations(reranked)
         state["relaxed"] = relaxed
         return state
 
     def _web_enabled(self, state: ServiceGraphState) -> bool:
-        """联网兜底开关：请求显式开启且 MCP 配置启用；评测默认关闭实现隔离。"""
-        return bool(state.get("enable_web_search")) and mcp_config.enabled
+        """联网兜底开关：请求显式开启 + MCP 启用 + 业务语境。
 
+        离题/泛咨询（无机型且非故障/售后意图）不做联网兜底，避免用无关公网内容作答。
+        """
+        if not (bool(state.get("enable_web_search")) and mcp_config.enabled):
+            return False
+        if not state.get("models") and state.get("intent") not in ("troubleshoot", "after_sales"):
+            return False
+        return True
     def _web_fallback(
         self,
         base_state: dict,
@@ -95,7 +104,7 @@ class RagAgent:
     ) -> list[dict]:
         """本地不足时联网补充，并与本地结果合并精排；失败回退本地结果。"""
         if is_stream:
-            push_progress(session_id, "searching_web", "本地未找到足够相关内容，正在联网搜索…")
+            push_progress(session_id, "searching_web", USER_WAIT_LABEL)
         try:
             web_result = self.node_web_search(dict(base_state))
         except Exception as exc:

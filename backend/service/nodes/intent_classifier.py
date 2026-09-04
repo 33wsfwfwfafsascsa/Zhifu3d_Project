@@ -10,6 +10,7 @@ from backend.service.constants import (
     CHITCHAT_KEYWORDS,
     INTENT_LABELS,
     ORDER_ID_PATTERN,
+    USER_WAIT_LABEL,
     rule_based_classify,
 )
 from backend.service.prompt.intent import INTENT_SYSTEM_PROMPT, INTENT_USER_TEMPLATE
@@ -28,7 +29,7 @@ class IntentClassifier:
     def __call__(self, state: ServiceGraphState) -> ServiceGraphState:
         query = state.get("original_query", "")
         if state.get("is_stream"):
-            push_progress(state.get("session_id"), "understanding", "正在理解您的问题…")
+            push_progress(state.get("session_id"), "understanding", USER_WAIT_LABEL)
         intent, confidence, order_ids = self._classify(query)
         state["intent"] = intent
         state["confidence"] = confidence

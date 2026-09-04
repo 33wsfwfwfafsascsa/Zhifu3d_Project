@@ -15,6 +15,7 @@ from backend.utils.session_utils import (
     claim_session,
     close_session,
     get_session,
+    list_handled,
     list_queue,
     update_session,
 )
@@ -54,6 +55,23 @@ def _clean(doc: dict[str, Any] | None) -> dict[str, Any]:
 def queue() -> list[dict[str, Any]]:
     """转人工会话队列：status=escalated 且未认领。"""
     return [_clean(doc) for doc in list_queue()]
+
+
+@router.get("/sessions")
+def handled_sessions(operator_name: str) -> list[dict[str, Any]]:
+    """该坐席接待过的客户列表（含会话 ID），供工作台客户栏点击回看。"""
+    fields = (
+        "session_id",
+        "status",
+        "operator_name",
+        "summary",
+        "customer_desc",
+        "models",
+        "entities",
+        "escalate_reason",
+        "updated_at",
+    )
+    return [{key: doc.get(key) for key in fields} for doc in list_handled(operator_name)]
 
 
 @router.post("/queue/{session_id}/take")

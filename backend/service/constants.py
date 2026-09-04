@@ -4,6 +4,9 @@ import re
 
 INTENT_LABELS = ("consult", "troubleshoot", "after_sales", "complaint", "chitchat")
 
+# 用户可见的统一等待文案：内部 stage 码仅用于日志/调试，不外显给终端用户
+USER_WAIT_LABEL = "正在思考中，请稍候…"
+
 KNOWLEDGE_TYPE_BY_INTENT: dict[str, list[str]] = {
     "troubleshoot": ["troubleshooting", "faq", "manual"],
     "consult": ["manual", "faq"],

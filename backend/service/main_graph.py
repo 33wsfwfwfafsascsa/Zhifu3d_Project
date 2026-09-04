@@ -31,8 +31,8 @@ def _route_after_intent(state: ServiceGraphState) -> str:
 
 
 def _route_after_confirm(state: ServiceGraphState) -> str:
-    """机型未确认（反问/兜底）直接结束，否则进入检索。"""
-    return "rag_agent" if not state.get("needs_model_confirmation") else "__end__"
+    """机型确认不再阻塞：确认后作为过滤维度，未确认则无机型过滤检索（ADR-0008）。"""
+    return "rag_agent"
 
 
 def _route_after_check(state: ServiceGraphState) -> str:

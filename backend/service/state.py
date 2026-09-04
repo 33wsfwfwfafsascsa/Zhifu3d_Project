@@ -13,6 +13,7 @@ class ServiceGraphState(TypedDict, total=False):
     confidence: float
     order_ids: list[str]
     models: list[str]
+    model_options: list[str]
     needs_model_confirmation: bool
     answer: str
     citations: list[dict]

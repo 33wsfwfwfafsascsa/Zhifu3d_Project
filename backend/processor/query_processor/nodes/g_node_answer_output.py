@@ -4,7 +4,7 @@ import logging
 import re
 
 from backend.processor.query_processor.base import NodeBase
-from backend.processor.query_processor.prompt.answer_prompt import ANSWER_PROMPT
+from backend.processor.query_processor.prompt.answer_prompt import ANSWER_PROMPT, NOT_FOUND_REPLY
 from backend.processor.query_processor.state import QueryGraphState
 from backend.utils.llm_utils import get_llm_client
 from backend.utils.mongo_history_utils import save_chat_message
@@ -13,6 +13,9 @@ from backend.utils.sse_utils import SSEEvent, push_to_session
 logger = logging.getLogger(__name__)
 
 MAX_CONTEXT_CHARS = 12000
+MD_IMG_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]*?\.(?:png|jpg|jpeg|gif|webp|bmp|svg))\)", re.IGNORECASE)
+BARE_IMG_PATTERN = re.compile(r"https?://\S+?\.(?:png|jpg|jpeg|gif|webp|bmp|svg)", re.IGNORECASE)
+REFS_TAG_PATTERN = re.compile(r"<refs>[\d,\s]*</refs>")
 
 
 class NodeAnswerOutput(NodeBase[QueryGraphState]):
@@ -27,6 +30,8 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
             session_id=state.get("session_id"),
             is_stream=bool(state.get("is_stream")),
         )
+        answer, refs = self._extract_refs(answer)
+        answer = self._sanitize_images(answer, state.get("reranked_docs") or [], refs)
         state["answer"] = answer
         save_chat_message(
             session_id=state.get("session_id", "default"),
@@ -36,6 +41,54 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
             image_urls=self._extract_images_from_docs(state.get("reranked_docs") or []),
         )
         return state
+
+    @staticmethod
+    def _extract_refs(answer: str) -> tuple[str, list[int] | None]:
+        """提取并移除文末 <refs> 声明；声明缺失/非法时返回 None（退化为存在性过滤）。"""
+        refs: list[int] | None = None
+        out_lines: list[str] = []
+        for line in answer.splitlines():
+            match = re.fullmatch(r"\s*<refs>\s*([\d,\s]*)\s*</refs>\s*", line)
+            if match:
+                if refs is None:
+                    parts = [part.strip() for part in match.group(1).split(",") if part.strip()]
+                    parsed = [int(part) for part in parts if part.isdigit()]
+                    if parts and len(parsed) == len(parts):
+                        refs = parsed
+                continue
+            out_lines.append(line)
+        return "\n".join(out_lines).strip(), refs
+
+    def _sanitize_images(self, answer: str, reranked_docs: list[dict], refs: list[int] | None) -> str:
+        """只保留「已声明采用的条目」里的图片，数量不限。
+
+        不删改参考原文：仅对答案里选出的图片做「归属」收口，剔除不属于所采用条目的图片。
+        """
+        if not answer:
+            return answer
+        if refs is not None:
+            entries = [reranked_docs[i - 1] for i in refs if 1 <= i <= len(reranked_docs)]
+        else:
+            entries = reranked_docs
+        allowed = set(self._extract_images_from_docs(entries))
+
+        answer = MD_IMG_PATTERN.sub(
+            lambda match: match.group(0) if match.group(1).strip() in allowed else "",
+            answer,
+        )
+        out_lines: list[str] = []
+        for raw in answer.splitlines():
+            line = raw.strip()
+            if not line:
+                out_lines.append(raw)
+                continue
+            if line == "【图片】":
+                continue
+            urls = [u.strip() for u in BARE_IMG_PATTERN.findall(line)]
+            if urls and not any(u in allowed for u in urls) and re.fullmatch(r"https?://\S+", line):
+                continue
+            out_lines.append(raw)
+        return "\n".join(out_lines)
 
     def _construct_prompt(self, state: QueryGraphState) -> str:
         question = state.get("rewritten_query") or state.get("original_query", "")
@@ -47,6 +100,7 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
             history=history_str or "暂无历史对话",
             models=models_str,
             question=question,
+            not_found_reply=NOT_FOUND_REPLY,
         )
 
     def _generate(self, prompt: str, session_id: str | None = None, is_stream: bool = False) -> str:
@@ -61,14 +115,19 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
             return "抱歉，生成回答时出现错误，请稍后重试或转人工客服。"
 
     def _generate_stream(self, client, prompt: str, session_id: str) -> str:
-        """流式生成并逐块推送 delta；异常时降级单次调用推单条 delta。"""
+        """流式生成并逐块推送 delta；<refs> 行在推送前剔除，用户不可见。"""
         chunks: list[str] = []
+        buf = ""
         try:
             for chunk in client.stream(prompt):
                 text = self._chunk_text(chunk)
-                if text:
-                    chunks.append(text)
-                    push_to_session(session_id, SSEEvent.DELTA, {"delta": text})
+                if not text:
+                    continue
+                chunks.append(text)
+                buf += text
+                clean, buf = self._redact_refs_lines(buf)
+                if clean:
+                    push_to_session(session_id, SSEEvent.DELTA, {"delta": clean})
         except Exception as exc:
             logger.warning("流式生成失败，降级单次调用: %s", exc)
             if not chunks:
@@ -76,7 +135,11 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
                 text = str(response.content or "").strip()
                 if text:
                     chunks.append(text)
-                    push_to_session(session_id, SSEEvent.DELTA, {"delta": text})
+                    buf += text
+        if buf:
+            clean, _ = self._redact_refs_lines(buf + "\n")
+            if clean:
+                push_to_session(session_id, SSEEvent.DELTA, {"delta": clean})
         return "".join(chunks).strip()
 
     @staticmethod
@@ -93,6 +156,17 @@ class NodeAnswerOutput(NodeBase[QueryGraphState]):
                     parts.append(str(block.get("text") or ""))
             return "".join(parts)
         return ""
+
+    @staticmethod
+    def _redact_refs_lines(buf: str) -> tuple[str, str]:
+        """逐行冲刷缓冲：剔除行内完整的 <refs> 标记，未换行的尾部留在缓冲继续拼装。"""
+        out_lines: list[str] = []
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
+            out_lines.append(REFS_TAG_PATTERN.sub("", line))
+        if not out_lines:
+            return "", buf
+        return "\n".join(out_lines) + "\n", buf
 
     def _format_reranked_docs(self, reranked_docs: list[dict]) -> tuple[str, int]:
         lines: list[str] = []
