@@ -1,8 +1,11 @@
 .env
 data
 .venv
+model
+
+# 本地维护文档（不上传仓库）
 企业级智能客服系统-PRD及技术方案.md
-docker-compose.yml
+CONTEXT.md
 
 # Python 缓存与生成物
 __pycache__/
@@ -10,11 +13,5 @@ __pycache__/
 *.egg-info/
 eval/report.partial.json
 eval/badcases.partial.json
-HANDOFF.md
-.env.example
-HANDOFF2.md
-HANDOFF3.md
-HANDOFF4.md
-HANDOFF5.md
-HANDOFF6.md
-model
+HANDOFF*.md
+test
