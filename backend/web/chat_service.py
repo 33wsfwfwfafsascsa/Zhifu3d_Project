@@ -1,11 +1,10 @@
 """客服对话 API：POST /api/chat（同步信封 / is_stream 后台执行）+ GET /api/stream/{session_id} SSE。
-
 启动：python -m backend.web.chat_service（默认 127.0.0.1:8002）
 """
 
 import logging
 import os
-import threading
+import threading # 流式模式后台线程
 import time
 import uuid
 from pathlib import Path
@@ -13,10 +12,10 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi import Request
-from fastapi.staticfiles import StaticFiles
+from fastapi.staticfiles import StaticFiles # 前端静态托管
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
-from starlette.responses import StreamingResponse
+from starlette.responses import StreamingResponse # SSE 响应
 from starlette.middleware.cors import CORSMiddleware
 
 from backend.processor.import_processor.base import setup_logging
@@ -24,28 +23,27 @@ from backend.service.main_graph import run
 from backend.service.state import ServiceGraphState
 from backend.utils.mongo_history_utils import clear_history, get_recent_messages, save_chat_message
 from backend.utils.sse_utils import (
-    SSEEvent,
-    create_sse_queue,
-    push_to_session,
-    sse_generator,
+    SSEEvent,# 事件类型常量（ready/progress/delta/.../final）
+    create_sse_queue,# 为会话创建队列
+    push_to_session,# 往会话队列写事件
+    sse_generator,# SSE 异步生成器
 )
 from backend.utils.session_utils import STATUS_ESCALATED, STATUS_PROCESSING, get_session
 from backend.web.agent_routes import router as agent_router
 
 logger = logging.getLogger(__name__)
 
-# A8 最小版限流：内存固定窗口，按客户端 IP 统计 /api/chat 请求数（进程内，单实例够用）。
-RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120"))
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_PER_MINUTE", "120")) # 默认 120 次/分钟
 RATE_LIMIT_WINDOW_SECONDS = 60.0
-_rate_hits: dict[str, list[float]] = {}
-_rate_lock = threading.Lock()
+_rate_hits: dict[str, list[float]] = {} # client_ip -> 请求时间戳列表
+_rate_lock = threading.Lock() # 多线程保护
 
 
 app = FastAPI(
     title="智服3D-客服对话API",
-    description="意图分类 → 机型确认 → RAG 检索 → 答案生成（非流式最小闭环）",
+    description="意图分类 → 机型确认 → RAG 检索 → 答案生成",
 )
-app.include_router(agent_router)
+app.include_router(agent_router) # 坐席工作台路由
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -74,6 +72,7 @@ async def rate_limit_middleware(request: Request, call_next):
 
 
 class ChatRequest(BaseModel):
+    """POST /api/chat 请求体。"""
     message: str = Field(..., min_length=1, description="用户消息")
     session_id: str | None = Field(None, description="会话ID，首轮可省略由服务端生成")
     is_stream: bool = Field(False, description="是否走 SSE 流式通道")
@@ -91,12 +90,16 @@ def chat(request: ChatRequest) -> dict:
     if not message:
         raise HTTPException(status_code=422, detail="message 不能为空")
 
+    # --- 会话与用户消息落库 ---
     session_id = request.session_id or str(uuid.uuid4())
+    # 先落用户消息；Mongo 不可用时返回 ""（后续可能因此丢历史）
     user_message_id = save_chat_message(session_id, "user", message)
+    # --- 已转人工/坐席处理中的会话：拦截新对话 ---
     existing = get_session(session_id)
     if existing and existing.get("status") in (STATUS_ESCALATED, STATUS_PROCESSING):
         reply = "您的问题已转接人工客服处理中，请稍候。"
         if request.is_stream:
+             # 流式：直接推 final（客户端可能正挂着 SSE）
             push_to_session(
                 session_id,
                 SSEEvent.FINAL,
@@ -108,6 +111,7 @@ def chat(request: ChatRequest) -> dict:
             "escalate": True,
             "handled_by_operator": True,
         }
+     # --- 流式模式：后台线程执行，接口立即返回 ---
     if request.is_stream:
         threading.Thread(
             target=_run_turn,
@@ -116,6 +120,7 @@ def chat(request: ChatRequest) -> dict:
         ).start()
         return {"session_id": session_id, "streaming": True}
 
+    # --- 同步模式：直接跑完整客服主图 ---
     initial_state: ServiceGraphState = {
         "session_id": session_id,
         "user_message_id": user_message_id,
@@ -197,7 +202,7 @@ def _run_turn(session_id: str, user_message_id: str, message: str) -> None:
 
 
 def _envelope(result: ServiceGraphState) -> dict:
-    """同步响应信封（Q8 契约）。"""
+    """同步响应信封。"""
     return {
         "session_id": result.get("session_id", ""),
         "intent": result.get("intent", ""),
@@ -210,7 +215,7 @@ def _envelope(result: ServiceGraphState) -> dict:
         "escalate_reason": result.get("escalate_reason", ""),
     }
 
-
+# 静态前端：当前文件在 backend/web，父级两级 = 项目根
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
@@ -218,4 +223,4 @@ if FRONTEND_DIR.exists():
 
 if __name__ == "__main__":
     setup_logging()
-    uvicorn.run(app, host="127.0.0.1", port=8002)
+    uvicorn.run(app, host="127.0.0.1", port=8002) # 对话 + 坐席 + 前端

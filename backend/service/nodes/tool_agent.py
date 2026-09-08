@@ -1,4 +1,4 @@
-"""工具 Agent 节点：规则优先 + LLM 兜底的工具调用与结果渲染（ADR-0004）。"""
+"""工具 Agent 节点：规则优先 + LLM 兜底的工具调用与结果渲染。"""
 
 import json
 import logging
@@ -15,6 +15,7 @@ from backend.utils.sse_utils import push_progress
 
 logger = logging.getLogger(__name__)
 
+# LLM 工具选择提示词：只输出 JSON；规则里显式约束 query_warranty 必须有订单号
 TOOL_SELECT_SYSTEM_PROMPT = """你是智服3D 的售后工具选择器，只输出 JSON，不要输出其他内容。
 可选工具：
 {specs}
@@ -29,8 +30,9 @@ POLICY_NOT_FOUND_REPLY = "未找到该商品类型的退换货政策，请说明
 NEED_INFO_REPLY = "请补充订单号或商品类别，我才能帮您查询。"
 WARRANTY_KEYWORDS = ("保修", "质保", "在保", "保内", "保外")
 
-
+# ---------- 渲染器：把业务 API 原始 dict 转成用户可读文本 ----------
 def _render_order(data: dict) -> str:
+    """订单信息渲染：商品/金额/状态/下单时间。"""
     return (
         f"已为您查到订单 {data.get('order_id')}：\n"
         f"- 商品：{data.get('product_name') or ''}（{data.get('product_model') or ''}）\n"
@@ -41,6 +43,7 @@ def _render_order(data: dict) -> str:
 
 
 def _render_logistics(data: dict) -> str:
+    """物流轨迹渲染：按事件时间/节点/描述逐行输出；无记录给占位行。"""
     lines = [f"订单 {data.get('order_id')} 的物流轨迹："]
     events = data.get("events") or []
     if not events:
@@ -51,6 +54,7 @@ def _render_logistics(data: dict) -> str:
 
 
 def _render_warranty(data: dict) -> str:
+    """保修判定渲染：保内显示剩余天数，保外直接说明；可选部件是否在保。"""
     in_warranty = bool(data.get("in_warranty"))
     lines = [
         f"订单 {data.get('order_id')}（机型 {data.get('product_model')}）的保修情况：",
@@ -67,6 +71,7 @@ def _render_warranty(data: dict) -> str:
 
 
 def _render_policy(data: dict) -> str:
+    """退换货政策渲染：质保月数/退货天数/换货天数/除外件/条款。"""
     excluded = data.get("excluded") or []
     return (
         f"{data.get('product_type')} 的退换货政策：\n"
@@ -77,7 +82,7 @@ def _render_policy(data: dict) -> str:
         f"- 条款：{data.get('terms_text')}"
     )
 
-
+# 工具名 → 渲染函数映射；新增工具需同步注册
 RENDERERS = {
     "query_order": _render_order,
     "query_logistics": _render_logistics,
@@ -92,8 +97,9 @@ class ToolAgent:
     name: str = "node_tool_agent"
 
     def __call__(self, state: ServiceGraphState) -> ServiceGraphState:
+        # --- 准备上下文 ---
         session_id = state.get("session_id", "")
-        history = state.get("history") or get_recent_messages(session_id)
+        history = state.get("history") or get_recent_messages(session_id) # 状态没给则读 Mongo
         state["history"] = history
         query = state.get("rewritten_query") or state.get("original_query", "")
         intent = state.get("intent", "consult")
@@ -126,6 +132,7 @@ class ToolAgent:
         """订单号路径：问保修才走保修判定，否则串联订单 + 物流（修复退款/退货类误路由）。"""
         results: list[dict] = []
         failures = 0
+        # 保修类问题：只查保修；否则默认订单 + 物流两条
         if intent == "after_sales" and any(keyword in query for keyword in WARRANTY_KEYWORDS):
             names = ["query_warranty"]
         else:
@@ -146,9 +153,11 @@ class ToolAgent:
         """无订单号的售后问题：LLM 在政策/保修之间选择工具与参数。"""
         selection = self._select_tool(query)
         if selection is None:
+            # LLM 没选出工具 → 让用户补充信息（不转人工）
             return [{"name": "_need_info", "ok": False, "need_info": True}], 0
         name = selection["tool"]
         args = selection.get("args") or {}
+        # 代码层兜底：即使 LLM 选了 query_warranty 却没给订单号，也要参数补齐话术
         if name == "query_warranty" and not str(args.get("order_id") or "").strip():
             return [{"name": "_need_info", "ok": False, "need_info": True}], 0
         try:
@@ -162,6 +171,8 @@ class ToolAgent:
 
     def _select_tool(self, query: str) -> dict | None:
         """LLM JSON 输出工具名与参数；解析失败返回 None 走补充信息话术。"""
+
+        # 把 TOOL_SPECS 转成纯文本规格（名称/说明/参数 schema）
         specs_text = "\n".join(
             f"- {spec['name']}: {spec['description']}；参数: {json.dumps(spec['params'], ensure_ascii=False)}"
             for spec in TOOL_SPECS
@@ -187,8 +198,9 @@ class ToolAgent:
             return None
 
     def _assemble(self, results: list[dict], failures: int) -> str:
+        """按优先级组装最终答案：失败 > 缺信息 > 404 > 成功渲染。"""
         if failures:
-            return TOOL_FAILURE_REPLY
+            return TOOL_FAILURE_REPLY # 有基础设施失败，直接转人工话术
         segments: list[str] = []
         for result in results:
             name = result["name"]
@@ -202,4 +214,5 @@ class ToolAgent:
                 renderer = RENDERERS.get(name)
                 if renderer:
                     segments.append(renderer(result["data"]))
+        # 成功结果用空行隔开（如“订单信息 + 物流轨迹”两段）
         return "\n\n".join(segments) or "未查询到相关信息，请核对订单号或商品类别后重试。"

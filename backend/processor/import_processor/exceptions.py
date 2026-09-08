@@ -2,14 +2,17 @@
 
 
 class ImportProcessError(Exception):
-    """导入流程基础异常。"""
+    """导入流程基础异常：所有导入异常都继承它，便于上层统一捕获。"""
 
     def __init__(self, message: str, node_name: str = "", cause: Exception = None):
+        # node_name：抛出异常的节点名（如 "node_pdf_to_md"），用于日志定位
         self.node_name = node_name
         self.cause = cause
         super().__init__(message)
 
     def __str__(self):
+        # 格式：[node_name] 主消息 (原因: 原始异常)
+        # 无 node_name / cause 时自动省略，保持日志简洁
         parts = []
         if self.node_name:
             parts.append(f"[{self.node_name}]")
@@ -20,7 +23,7 @@ class ImportProcessError(Exception):
 
 
 class StateFieldError(ImportProcessError):
-    """状态字段缺失、为空或类型不符。"""
+    """状态字段缺失、为空或类型不符：节点输入校验失败时使用。"""
 
     def __init__(
         self,
@@ -40,23 +43,23 @@ class StateFieldError(ImportProcessError):
 
 
 class ConfigurationError(ImportProcessError):
-    """配置错误。"""
+    """配置错误（目前代码中尚未抛出的预留分支）。"""
 
 
 class FileProcessingError(ImportProcessError):
-    """文件处理错误。"""
+    """文件处理错误（文件不存在/读取失败等）。"""
 
 
 class PdfConversionError(FileProcessingError):
-    """PDF 转换错误。"""
+    """PDF 转换错误：MinerU 上传/轮询/下载失败。"""
 
 
 class ImageProcessingError(FileProcessingError):
-    """图片处理错误。"""
+    """图片处理错误（当前 c 节点更多用日志降级，未大量抛此异常）。"""
 
 
 class DocumentSplitError(ImportProcessError):
-    """文档切分错误。"""
+    """文档切分错误（当前 d 节点以防御式处理为主）。"""
 
 
 class EmbeddingError(ImportProcessError):
@@ -72,7 +75,7 @@ class StorageError(ImportProcessError):
 
 
 class MilvusError(StorageError):
-    """Milvus 存储错误。"""
+    """Milvus 存储/删除/插入错误（g 节点使用）。"""
 
 
 class MinioError(StorageError):
@@ -80,4 +83,4 @@ class MinioError(StorageError):
 
 
 class ValidationError(ImportProcessError):
-    """数据验证错误。"""
+    """数据验证错误：a 节点用于“不支持的文件后缀”。"""

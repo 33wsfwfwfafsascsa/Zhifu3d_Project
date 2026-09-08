@@ -1,6 +1,5 @@
 """业务工具：@tool 封装 + httpx 调 Mock 业务 API（8001）。
-
-失败语义（ADR-0005）：
+失败语义：
 - ToolNotFound：404 属合法业务结果，友好兜底，不计工具失败；
 - ToolFailure：连接错误/超时/5xx，重试 1 次（共 2 次尝试），连续 2 次失败转人工。
 """
@@ -9,13 +8,13 @@ import logging
 from typing import Any
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import tool # LangChain @tool：使普通函数可被 invoke
 
 from backend.config.business_config import business_config
 
 logger = logging.getLogger(__name__)
 
-
+# 异常基类：便于上层统一 except ToolError 再细分
 class ToolError(Exception):
     """业务工具调用基类异常。"""
 
@@ -27,7 +26,7 @@ class ToolNotFound(ToolError):
 class ToolFailure(ToolError):
     """基础设施失败：连接错误/超时/5xx，计失败次数。"""
 
-
+# 总尝试次数 = 首次调用 + 1 次重试
 MAX_ATTEMPTS = 2
 
 
@@ -39,10 +38,11 @@ def _request(
     json_body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """带重试的 HTTP 调用；404 抛 ToolNotFound，5xx/网络失败重试后抛 ToolFailure。"""
-    last_exc: Exception | None = None
+    last_exc: Exception | None = None # 记录最后一次失败，循环结束后统一抛出
     for attempt in range(MAX_ATTEMPTS):
         try:
             with httpx.Client(timeout=business_config.timeout) as client:
+                # 每次请求都新建 Client（简单场景够用；高并发可复用连接池）
                 response = client.request(
                     method,
                     f"{business_config.base_url}{path}",
@@ -50,21 +50,28 @@ def _request(
                     json=json_body,
                 )
         except httpx.HTTPError as exc:
+            # 连接拒绝/超时/DNS 失败等：记录并进入下一次尝试
             last_exc = ToolFailure(f"业务接口连接失败: {exc}")
             logger.warning("工具调用失败（第 %d 次）: %s", attempt + 1, exc)
             continue
+
+        # 404：合法业务结果（订单不存在/政策不存在），不重试
         if response.status_code == 404:
             raise ToolNotFound(f"{path} 资源不存在")
+
+        # 5xx：服务端故障，值得重试一次
         if response.status_code >= 500:
             last_exc = ToolFailure(f"业务接口异常: HTTP {response.status_code}")
             logger.warning("工具调用失败（第 %d 次）: HTTP %d", attempt + 1, response.status_code)
             continue
+
+        # 其他 4xx：参数/权限问题，重试无意义，直接失败
         if response.status_code >= 400:
             raise ToolFailure(f"业务接口拒绝: HTTP {response.status_code}")
         return response.json()
     raise last_exc or ToolFailure("业务接口不可用")
 
-
+# ---------- 四个用户侧查询工具 ----------
 @tool
 def query_order(order_id: str) -> dict:
     """查询指定订单的状态、商品、金额与下单时间。参数 order_id 为订单号。"""
@@ -91,7 +98,7 @@ def query_warranty(order_id: str, part: str | None = None) -> dict:
         params["part"] = part
     return _request("GET", f"/api/warranty/{order_id}", params=params)
 
-
+# ---------- 内部工单创建（不进 TOOL_SPECS，不暴露给对话 LLM）----------
 def create_ticket(
     session_id: str,
     category: str,
@@ -112,7 +119,7 @@ def create_ticket(
         },
     )
 
-
+# 完整工具注册表：规则路径（订单/物流/保修）与 call_tool 都从这里取
 TOOL_MAP = {
     "query_order": query_order,
     "query_logistics": query_logistics,
@@ -120,7 +127,7 @@ TOOL_MAP = {
     "query_warranty": query_warranty,
 }
 
-# 仅供 LLM 兜底选择（ADR-0004）：无订单号的售后问题在政策/保修之间二选一。
+# 仅供 LLM 兜底选择：无订单号的售后问题在政策/保修之间二选一。
 TOOL_SPECS = [
     {
         "name": "query_refund_policy",

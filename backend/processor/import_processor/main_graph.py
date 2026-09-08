@@ -29,6 +29,7 @@ class KBImportWorkflow:
 
     @staticmethod
     def route_after_entry(state: ImportGraphState) -> str:
+        """a 节点之后的条件路由：根据读取标志决定下一个节点。"""
         if state.get("is_pdf_read_enabled"):
             return "b_node_pdf_to_md"
         if state.get("is_md_read_enabled"):
@@ -38,6 +39,7 @@ class KBImportWorkflow:
 
     def build_graph(self):
         graph = StateGraph(ImportGraphState)
+        # 注册 7 个节点，key 与类 name 不一定相同
         graph.add_node("a_node_entry", NodeEntry())
         graph.add_node("b_node_pdf_to_md", NodePDFToMD())
         graph.add_node("c_node_md_img", NodeMDImg())
@@ -46,6 +48,7 @@ class KBImportWorkflow:
         graph.add_node("f_node_bge_embedding", NodeBGEEmbedding())
         graph.add_node("g_node_import_milvus", NodeImportMilvus())
 
+        # 条件边：route_after_entry 的返回值在映射表中找到目标
         graph.set_entry_point("a_node_entry")
         graph.add_conditional_edges(
             "a_node_entry",
@@ -56,6 +59,7 @@ class KBImportWorkflow:
                 END: END,
             },
         )
+        # 固定顺序边：PDF 转换后仍需走图片处理，其余节点串行到入库
         graph.add_edge("b_node_pdf_to_md", "c_node_md_img")
         graph.add_edge("c_node_md_img", "d_node_document_split")
         graph.add_edge("d_node_document_split", "e_node_model_tagging")

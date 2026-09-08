@@ -1,4 +1,4 @@
-"""客服编排主图：单 Agent 最小闭环（非流式，Day 3 口径）。"""
+"""客服编排主图"""
 
 from langgraph.graph import END, StateGraph
 
@@ -19,19 +19,25 @@ tool_agent = ToolAgent()
 def _route_after_intent(state: ServiceGraphState) -> str:
     """意图路由：闲聊直接回复；投诉走转人工检查；订单实体/售后走工具 Agent；其余走机型确认。"""
     intent = state.get("intent", "")
+    # 分支 1：闲聊 —— 不查知识库、不转人工
     if intent == "chitchat":
         return "chitchat_reply"
+    # 分支 2：投诉 —— 直接进转人工判定（complaint 原因）
     if intent == "complaint":
         return "escalation_check"
+    # 分支 3：显式要求人工 —— 即使 intent 是咨询也进转人工判定（user_request 原因）
     if any(keyword in state.get("original_query", "") for keyword in EXPLICIT_KEYWORDS):
         return "escalation_check"
+    # 分支 4：有订单号（订单/物流实体查询）或售后意图 —— 走工具 Agent
     if state.get("order_ids") or intent == "after_sales":
         return "tool_agent"
+    # 分支 5：咨询/故障 —— 走机型确认 → RAG
     return "model_confirm"
 
 
 def _route_after_confirm(state: ServiceGraphState) -> str:
-    """机型确认不再阻塞：确认后作为过滤维度，未确认则无机型过滤检索（ADR-0008）。"""
+    """机型确认不再阻塞：确认后作为过滤维度，未确认则无机型过滤检索。"""
+    # 无条件进入 RAG：不产生“反问-等待”环
     return "rag_agent"
 
 
@@ -62,7 +68,7 @@ def build_service_graph():
             "model_confirm": "model_confirm",
         },
     )
-    workflow.add_edge("chitchat_reply", END)
+    workflow.add_edge("chitchat_reply", END) # 闲聊不检查转人工
     workflow.add_edge("tool_agent", "escalation_check")
     workflow.add_conditional_edges(
         "model_confirm",

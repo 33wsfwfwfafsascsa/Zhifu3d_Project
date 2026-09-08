@@ -1,4 +1,4 @@
-"""会话状态（Mongo session 集合）读写：转人工队列、原子领取、未解决计数（ADR-0005）。"""
+"""会话状态（Mongo session 集合）读写：转人工队列、原子领取、未解决计数。"""
 
 import logging
 from datetime import datetime
@@ -10,13 +10,15 @@ from backend.utils.mongo_history_utils import get_history_mongo_tool
 
 logger = logging.getLogger(__name__)
 
-STATUS_ACTIVE = "active"
-STATUS_ESCALATED = "escalated"
-STATUS_PROCESSING = "processing"
-STATUS_CLOSED = "closed"
+# 会话状态常量
+STATUS_ACTIVE = "active" # 普通对话中
+STATUS_ESCALATED = "escalated" # 已转人工，待领取
+STATUS_PROCESSING = "processing" # 已被坐席领取
+STATUS_CLOSED = "closed" # 已关闭
 
 
 def _now() -> float:
+    """统一时间戳（秒）。"""
     return datetime.now().timestamp()
 
 
@@ -33,11 +35,12 @@ def get_session(session_id: str) -> dict[str, Any] | None:
 
 
 def bump_streaks(session_id: str, negative: bool, not_found: bool) -> dict[str, Any]:
-    """按本轮信号更新未解决计数：命中则 +1，未命中则清零（Q6 双口径）。"""
+    """按本轮信号更新未解决计数：命中则 +1，未命中则清零。"""
     tool = get_history_mongo_tool()
     if tool is None:
         return {}
     doc = get_session(session_id) or {}
+    # 双口径：用户负面反馈 / 机器人空答案
     unresolved = (int(doc.get("unresolved_streak") or 0) + 1) if negative else 0
     not_found_streak = (int(doc.get("not_found_streak") or 0) + 1) if not_found else 0
     now = _now()
@@ -133,6 +136,7 @@ def claim_session(session_id: str, operator_name: str) -> dict[str, Any] | None:
     if tool is None:
         return None
     try:
+        # find_one_and_update + 状态条件 = CAS：两个坐席同时领取只有一个成功
         return tool.session.find_one_and_update(
             {"session_id": session_id, "status": STATUS_ESCALATED},
             {
@@ -155,6 +159,7 @@ def update_session(session_id: str, fields: dict[str, Any]) -> dict[str, Any] | 
     if tool is None:
         return None
     try:
+        # 总是顺带刷新 updated_at；不 upsert（会话不存在则不动）
         tool.session.update_one(
             {"session_id": session_id},
             {"$set": {**fields, "updated_at": _now()}},

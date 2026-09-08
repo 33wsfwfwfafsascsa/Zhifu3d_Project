@@ -5,7 +5,7 @@
 
 import json
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta # 保修日期计算
 from typing import List, Literal, Optional
 
 import uvicorn
@@ -33,6 +33,7 @@ app.add_middleware(
 
 
 class TicketCreate(BaseModel):
+    """创建工单请求体。"""
     session_id: str = Field(..., description="关联会话 ID")
     category: str = Field(..., description="咨询/故障/售后/投诉")
     summary: str = Field(..., description="工单摘要")
@@ -41,13 +42,14 @@ class TicketCreate(BaseModel):
 
 
 class TicketStatusUpdate(BaseModel):
+    """状态更新请求体：Literal 限制只能三选一。"""
     status: Literal["open", "processing", "closed"] = Field(..., description="目标状态")
 
 
 def _db_execute(sql: str, params: tuple = ()) -> List[dict]:
     """统一数据库查询入口：执行 SQL 并返回字典列表。"""
     try:
-        conn = get_connection()
+        conn = get_connection() # 每次新建连接
         try:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
@@ -78,7 +80,7 @@ def _parse_excluded(raw: Optional[str]) -> List[str]:
     if not raw:
         return []
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(raw) # 正常存的是 JSON 数组字符串
         return [str(x) for x in parsed] if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         return [x.strip() for x in raw.split("、") if x.strip()]
@@ -176,6 +178,7 @@ def get_warranty(order_id: str, part: Optional[str] = None) -> dict:
     else:
         warranty_start = order[0]["created_at"]
 
+    # 统一成 datetime（兼容 pymysql 返回 datetime/date/str）
     if isinstance(warranty_start, datetime):
         warranty_start_dt = warranty_start
     elif isinstance(warranty_start, date):

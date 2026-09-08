@@ -37,6 +37,7 @@ def get_history_mongo_tool() -> "HistoryMongoTool | None":
         try:
             _mongo_tool = HistoryMongoTool()
         except Exception as exc:
+            # 连接失败只降级，不让整个问答链路崩
             logger.error("MongoDB 连接失败（历史读写降级）: %s", exc)
     return _mongo_tool
 
@@ -59,6 +60,7 @@ def save_chat_message(
     if mongo_tool is None:
         return ""
 
+    # 统一文档结构：缺失可选字段给默认值，便于前端/检索稳定
     document: dict[str, Any] = {
         "session_id": session_id,
         "role": role,
@@ -74,6 +76,7 @@ def save_chat_message(
     }
     try:
         if message_id:
+            # 已有消息：按 _id 原位更新（机型确认后回填改写问题/机型）
             mongo_tool.chat_message.update_one({"_id": ObjectId(message_id)}, {"$set": document})
             return message_id
         result = mongo_tool.chat_message.insert_one(document)
@@ -114,7 +117,7 @@ def get_recent_messages(session_id: str, limit: int = 10) -> list[dict[str, Any]
 
 
 def clear_history(session_id: str) -> int:
-    """清空指定会话历史。"""
+    """清空指定会话历史（只删 chat_message，不删 session 状态文档）。"""
     mongo_tool = get_history_mongo_tool()
     if mongo_tool is None:
         return 0

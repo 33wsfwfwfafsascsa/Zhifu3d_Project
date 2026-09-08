@@ -13,15 +13,17 @@ minio_client = None
 
 
 def _init_minio_client() -> Minio | None:
+    """创建客户端 + 确保桶存在 + 设置公共读策略。"""
     client = Minio(
         endpoint=minio_config.endpoint,
         access_key=minio_config.access_key,
         secret_key=minio_config.secret_key,
-        secure=False,
+        secure=False, # 本地默认 HTTP；与 ImportConfig.minio_secure 无关（硬编码）
     )
     if not client.bucket_exists(minio_config.bucket_name):
         client.make_bucket(minio_config.bucket_name)
 
+    # 公共读策略：允许任何人 GetObject，保证 Markdown 图片 URL 可直接访问
     policy = {
         "Version": "2012-10-17",
         "Statement": [

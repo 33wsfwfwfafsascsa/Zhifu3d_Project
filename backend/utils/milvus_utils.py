@@ -29,7 +29,7 @@ def get_milvus_client() -> MilvusClient | None:
 
 
 def escape_milvus_string(value: str) -> str:
-    """转义过滤表达式中的字符串特殊字符。"""
+    """转义过滤表达式中的字符串特殊字符（防注入/防语法破坏）。"""
     value = value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
     return value
 
@@ -41,11 +41,13 @@ def build_chunk_filter_expr(
     """构造 kb_chunks 过滤表达式（product_model / knowledge_type in [...]）。"""
     parts: list[str] = []
     if models:
+        # 用 json.dumps 生成带引号的安全字符串（比手工拼引号稳）
         quoted = ", ".join(json.dumps(m, ensure_ascii=False) for m in models)
         parts.append(f"product_model in [{quoted}]")
     if knowledge_types:
         quoted = ", ".join(json.dumps(t, ensure_ascii=False) for t in knowledge_types)
         parts.append(f"knowledge_type in [{quoted}]")
+    # 两段条件用 and 连接；全空返回 None 表示不过滤
     return " and ".join(parts) if parts else None
 
 
@@ -64,12 +66,14 @@ def create_kb_chunks_collection(client: MilvusClient, collection_name: str, vect
     schema.add_field(field_name="dense_vector", datatype=DataType.FLOAT_VECTOR, dim=vector_dim)
 
     index_params = client.prepare_index_params()
+    # 稠密索引：AUTOINDEX + COSINE（BGE 已归一化，COSINE 合适）
     index_params.add_index(
         field_name="dense_vector",
         index_name="dense_vector_index",
         index_type="AUTOINDEX",
         metric_type="COSINE",
     )
+    # 稀疏索引：倒排 + IP
     index_params.add_index(
         field_name="sparse_vector",
         index_name="sparse_inverted_index",

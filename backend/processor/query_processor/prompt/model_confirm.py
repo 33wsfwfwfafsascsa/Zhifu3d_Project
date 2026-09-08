@@ -1,7 +1,9 @@
 """机型提取与问题改写提示词。"""
 
+# 系统角色：售后客服助手，负责“理解意图 + 提取关键信息”
 MODEL_EXTRACT_SYSTEM_PROMPT = "你是一个专业的 3D 打印机售后客服助手，擅长理解用户意图并提取关键信息。"
 
+# 用户模板：调用方填充 history_text（历史会话）与 query（当前问题）
 MODEL_EXTRACT_TEMPLATE = """
 历史会话：
 {history_text}

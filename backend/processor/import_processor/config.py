@@ -15,18 +15,20 @@ MODEL_GENERAL = "general"
 @dataclass
 class ImportConfig:
     # 文档切分
-    max_content_length: int = 2000
-    img_content_length: int = 200
-    min_content_length: int = 500
+    max_content_length: int = 2000 # 单 chunk 目标最大字符数
+    img_content_length: int = 200 # 图片相关内容的长度上限（预留，d 节点未直接用）
+    min_content_length: int = 500 # 短 chunk 合并阈值（小于该长度且同父章节时合并）
     overlap_sentences: int = 1
     # 多机型文件 chunk 级标注上下文上限
     model_tagging_max_chars: int = 2500
 
+    # 允许作为文档图片处理的扩展名（c 节点使用）
     image_extensions: Set[str] = field(
         default_factory=lambda: {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
     )
 
     # LLM
+    # ===== LLM 相关（注意：节点代码实际更常读 lm_config/mineru_config 等全局配置）=====
     openai_api_base: str = field(default_factory=lambda: os.getenv("OPENAI_API_BASE", ""))
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     vl_model: str = field(default_factory=lambda: os.getenv("VL_MODEL", ""))
@@ -65,7 +67,7 @@ _config: Optional[ImportConfig] = None
 
 
 def get_config() -> ImportConfig:
-    """获取配置单例。"""
+    """获取配置单例：首次调用创建，之后复用。"""
     global _config
     if _config is None:
         _config = ImportConfig.from_env()

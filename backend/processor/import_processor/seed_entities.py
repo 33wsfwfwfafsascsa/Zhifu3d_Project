@@ -1,4 +1,4 @@
-"""kb_entities 种入脚本：以 MySQL products.model 为权威来源（ADR-0002）。"""
+"""kb_entities 种入脚本：以 MySQL products.model 为权威来源。"""
 
 import logging
 from typing import List
@@ -30,15 +30,17 @@ def seed_entities(client, models: List[str]) -> int:
     if not models:
         raise RuntimeError("机型目录为空，请先运行 mock 业务 API 的 seed")
 
-    collection = milvus_config.entity_collection
-    embeddings = generate_embeddings(models)
-    vector_dim = len(embeddings["dense"][0])
+    collection = milvus_config.entity_collection # 目标集合名（默认 kb_entities）
+    embeddings = generate_embeddings(models) # 机型名批量向量化（dense + sparse）
+    vector_dim = len(embeddings["dense"][0]) # 从第一段向量推断维度
 
+    # 集合不存在才创建并加载；已存在则复用（前提：schema/维度一致）
     if not client.has_collection(collection):
         logging.getLogger(__name__).info("创建集合 %s", collection)
         create_kb_entities_collection(client, collection, vector_dim)
         client.load_collection(collection)
 
+    # 幂等清理：pk >= 0 删除全部现有记录（主键为 auto_id 的 INT64）
     client.delete(collection_name=collection, filter="pk >= 0")
     data = [
         {

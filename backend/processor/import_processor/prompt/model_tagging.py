@@ -1,7 +1,9 @@
 """多机型文件 chunk 级机型标注提示词。"""
 
+# 系统提示：固定 LLM 的“角色”——只做机型判断，不做其他任务
 MODEL_TAGGING_SYSTEM_PROMPT = "你是 3D 打印机知识库的机型标注模型：判断一段知识内容涉及哪台打印机机型。"
 
+# 用户提示模板：e 节点用 .format(title=..., content=..., catalog=...) 填充
 MODEL_TAGGING_USER_PROMPT_TEMPLATE = """请判断以下知识片段涉及的打印机机型：
 
 标题：{title}

@@ -16,6 +16,7 @@ def get_llm_client(model: str | None = None, json_mode: bool = False) -> ChatOpe
 
     model_kwargs: dict = {}
     if json_mode:
+        # 请求 OpenAI 兼容端点返回 JSON 对象（部分模型依赖该参数）
         model_kwargs["response_format"] = {"type": "json_object"}
 
     client = ChatOpenAI(

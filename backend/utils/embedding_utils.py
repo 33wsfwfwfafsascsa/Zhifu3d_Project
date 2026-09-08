@@ -26,9 +26,9 @@ def get_bge_m3_ef() -> BGEM3EmbeddingFunction:
             raise RuntimeError("BGE_M3_PATH 未配置，请在 .env 中设置本地 BGE-M3 权重目录")
 
         _bge_m3_ef = BGEM3EmbeddingFunction(
-            model_name=model_path,
+            model_name=model_path, # 本地权重目录
             device=embedding_config.bge_device or None,
-            use_fp16=embedding_config.bge_fp16,
+            use_fp16=embedding_config.bge_fp16,# 半精度省显存
             normalize_embeddings=True,
         )
         return _bge_m3_ef
@@ -43,8 +43,10 @@ def generate_embeddings(texts: list[str]) -> dict:
     model = get_bge_m3_ef()
     embeddings = model.encode_documents(texts)
 
+    # 把 CSR 格式的 sparse 矩阵切成每段文本的 (indices, data)
     processed_sparse = []
     for i in range(len(texts)):
+        # 第 i 段文本在稀疏矩阵中的行区间由 indptr[i] ~ indptr[i+1] 界定
         sparse_indices = embeddings["sparse"].indices[
             embeddings["sparse"].indptr[i] : embeddings["sparse"].indptr[i + 1]
         ].tolist()

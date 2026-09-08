@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from bson import ObjectId
+from bson import ObjectId # MongoDB 主键类型
 
 
 class CustomJSONEncoder(json.JSONEncoder):
@@ -17,4 +17,5 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 def format_json(data: Any, indent: int = 4, ensure_ascii: bool = False) -> str:
     """统一 JSON 序列化入口。"""
+    # ensure_ascii=False：中文原样输出（默认），便于日志/调试可读
     return json.dumps(data, indent=indent, ensure_ascii=ensure_ascii, cls=CustomJSONEncoder)

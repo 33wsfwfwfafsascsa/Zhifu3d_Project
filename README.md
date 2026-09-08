@@ -216,9 +216,12 @@ zhifu3d/
 ├── pyproject.toml               # uv 项目定义与依赖
 ├── uv.lock                      # uv 锁定文件
 ├── .env.example                 # 环境变量模板
+├── AGENTS.md                    # AI 工程协作规则（供 AI 编码代理参考）
 ├── LICENSE                      # MIT 许可证
 └── README.md
 ```
+
+> 说明：根目录的 `CONTEXT.md`、PRD 文档与 `docs/` 为本地维护文档（`.gitignore` 已忽略，不入仓库），故未列入上方结构。
 
 ## 效果指标
 

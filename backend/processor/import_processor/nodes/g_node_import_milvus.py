@@ -23,21 +23,29 @@ class NodeImportMilvus(BaseNode):
         encoded = value.encode("utf-8")
         if len(encoded) <= max_bytes:
             return value
+        # 从第 max_bytes 字节处截断；errors=ignore 防止把多字节汉字切半个
         return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
     def process(self, state: ImportGraphState) -> ImportGraphState:
+        # [1/5] 校验并取向量维度
         chunks, vector_dimension = self._step_1_check_input(state)
+        # [2/5] 获取客户端；集合不存在则创建
         client = self._step_2_prepare_collection(vector_dimension)
+        # [3/5] 按幂等键删除旧数据
         self._step_3_clean_old_data(client, chunks)
+        # [4/5] 批量插入并回填 chunk_id
         updated_chunks = self._step_4_insert_data(client, chunks)
+        # [5/5] 更新全局状态，将回填后的切片回传下游
         state["chunks"] = updated_chunks
         return state
 
     def _step_1_check_input(self, state: Dict[str, Any]) -> tuple[List[Dict[str, Any]], int]:
+        """校验 chunks 完整性，返回 (chunks, 稠密向量维度)。"""
         chunks = state.get("chunks")
         if not chunks or not isinstance(chunks, list):
             raise StateFieldError(field_name="chunks", expected_type=list)
 
+        # 只检查首块：隐含假设所有 chunk 结构一致
         first_chunk = chunks[0]
         if "dense_vector" not in first_chunk:
             raise StateFieldError(field_name="chunks", message="缺失 dense_vector 字段", expected_type=list)
@@ -46,32 +54,35 @@ class NodeImportMilvus(BaseNode):
         if "product_model" not in first_chunk or "knowledge_type" not in first_chunk:
             raise StateFieldError(field_name="chunks", message="缺失 product_model/knowledge_type 标签", expected_type=list)
 
-        vector_dimension = len(first_chunk["dense_vector"])
+        vector_dimension = len(first_chunk["dense_vector"]) # 建集合时用
         return chunks, vector_dimension
 
     def _step_2_prepare_collection(self, vector_dimension: int):
+        """连接 Milvus；集合缺失时建表并 load。"""
         client = get_milvus_client()
         if not client:
-            raise MilvusError("Milvus 连接失败")
+            raise MilvusError("Milvus 连接失败") # 无客户端时明确失败（不能降级）
 
         collection_name = milvus_config.chunks_collection
         if not client.has_collection(collection_name):
             self.logger.info("集合不存在，创建 %s", collection_name)
             create_kb_chunks_collection(client, collection_name, vector_dimension)
-            client.load_collection(collection_name)
+            client.load_collection(collection_name) # 加载到内存供写入/检索
         return client
 
     def _step_3_clean_old_data(self, client, chunks: List[Dict[str, Any]]) -> None:
+        """幂等清理：删掉同 file_title + product_model + knowledge_type 的旧记录。"""
         file_title = chunks[0].get("file_title")
         knowledge_type = chunks[0].get("knowledge_type")
         product_model = chunks[0].get("product_model")
         if not file_title or not knowledge_type or not product_model:
+            # 三者为空时删除条件会太宽（可能清掉整个集合），因此必须显式报错
             raise StateFieldError(
                 field_name="chunks",
                 message="file_title/product_model/knowledge_type 不能为空",
                 expected_type=list,
             )
-
+        # 转义后再拼 filter，防止文件名/机型里的引号破坏表达式
         safe_title = escape_milvus_string(file_title)
         safe_type = escape_milvus_string(knowledge_type)
         safe_model = escape_milvus_string(product_model)
@@ -93,9 +104,10 @@ class NodeImportMilvus(BaseNode):
             raise MilvusError(f"Milvus 数据删除失败: {exc}") from exc
 
     def _step_4_insert_data(self, client, chunks_json_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """批量插入：先按 schema 限制截断，再插入，最后把 chunk_id 回填原列表。"""
         data_to_insert = []
         for item in chunks_json_data:
-            item_copy = item.copy()
+            item_copy = item.copy() # 不污染原 chunk
             if "part" not in item_copy:
                 item_copy["part"] = 0
             # 对齐 schema 的 VARCHAR 长度限制（按 UTF-8 字节计）
@@ -111,7 +123,8 @@ class NodeImportMilvus(BaseNode):
         insert_count = insert_result.get("insert_count", 0)
         inserted_ids = insert_result.get("ids", [])
         if inserted_ids:
+            # auto_id 主键按数据顺序返回，按索引回填到原 chunk
             for idx, item in enumerate(chunks_json_data):
                 item["chunk_id"] = str(inserted_ids[idx])
         self.logger.info("批量插入完成：%s 条", insert_count)
-        return chunks_json_data
+        return chunks_json_data # 返回原列表（含 chunk_id，内容未截断）
