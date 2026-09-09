@@ -63,7 +63,7 @@ class RagAgent:
         # --- 第一次严格检索（带 models 过滤）---
         reranked = self._retrieve(base_state)
         relaxed = False
-        # 严格模式空结果 + 用户确认过机型：放宽到 general 再试一次
+        # 带机型严格检索一条都没命中，就丢掉机型过滤，改查 general 通用知识，并在答案末尾追加说明，告诉用户“该机型下没找到，已放宽到通用知识
         if not reranked and base_state["models"]:
             logger.info("机型严格过滤无结果，放宽至 general 检索")
             reranked = self._retrieve({**base_state, "models": ["general"]})
