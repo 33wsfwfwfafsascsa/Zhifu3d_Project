@@ -26,7 +26,7 @@ WEB_SEARCH_MIN_SCORE = 0.6
 
 
 class RagAgent:
-    """知识检索 + 答案生成编排（单 Agent 最小闭环）。"""
+    """知识检索 + 答案生成编排"""
 
     name: str = "node_rag_agent"
 
